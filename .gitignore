@@ -1,0 +1,66 @@
+# ============================================================
+# ISRO Predictive NOC Copilot — .gitignore
+# ============================================================
+
+# --- Python virtual environments ---
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# --- Python ML model files (large binaries) ---
+*.pkl
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# --- SQLite databases (large) ---
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# --- Logs ---
+*.log
+logs/
+
+# --- OS artifacts ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- IDE ---
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+
+# --- Environment / Secrets ---
+.env
+.env.local
+.env.*.local
+
+# --- Snapshot system ---
+.snapshots/
+
+# --- Python bytecode ---
+*.pyc
+*.pyo
+
+# --- InfluxDB (removed) ---
+influxdb/
+influxdb-data/
+influxdb.zip

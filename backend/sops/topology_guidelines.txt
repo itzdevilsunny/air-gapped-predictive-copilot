@@ -1,0 +1,2 @@
+Architecture Guide: The ISRO MPLS mesh connects ISTRAC Bangalore (master control), SDSC Sriharikota (launch site), MCF Hassan (satellite control), NOC Delhi, NOC Mumbai (gateways), and TRACK Port Blair (downrange station).
+Standard latency threshold between Bangalore and Sriharikota is 25ms. Jitter must be below 5ms for secure voice control.

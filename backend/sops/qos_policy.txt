@@ -1,0 +1,4 @@
+SOP-NET-01: Quality of Service (QoS) configurations for critical tracking telemetry.
+Primary tracking telemetry (tracking data, telemetry links) must be mapped to the IP Precedence 5 / DSCP EF class.
+If congestion is observed, shape non-critical bandwidth to 10Mbps maximum.
+Apply command 'service-policy output ISRO-QOS-SHAPING' to interfaces to prevent congestion.

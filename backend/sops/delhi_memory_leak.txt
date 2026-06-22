@@ -1,0 +1,2 @@
+Incident Report: Router NOC-DEL experienced routing daemon crash due to CPU and Memory exhaustion.
+Resolution: The routing tables had ballooned, causing memory buffers to fill. Clear router tables with 'clear ip route *' and apply memory threshold monitoring commands: 'process cpu threshold type total rising 80 interval 5'.

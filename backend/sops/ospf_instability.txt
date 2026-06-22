@@ -1,0 +1,2 @@
+SOP-OSPF-04: Managing database flaps. If routes are flapping, turn on OSPF events debug: 'debug ip ospf event'.
+Validate interface error counters using 'show interface counters errors' to check for physical layer faults.
