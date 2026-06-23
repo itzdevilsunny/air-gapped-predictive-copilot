@@ -1,9 +1,25 @@
-import numpy as np
-import pandas as pd
-from xgboost import XGBClassifier
-from sklearn.ensemble import IsolationForest
 import warnings
 warnings.filterwarnings('ignore')
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+
+try:
+    from sklearn.ensemble import IsolationForest
+except ImportError:
+    IsolationForest = None
 
 class NetworkIntelligence:
     def __init__(self):
@@ -23,7 +39,12 @@ class NetworkIntelligence:
             "memory": 45.0
         }
 
-    def train(self, raw_df: pd.DataFrame):
+    def _mean(self, values: list) -> float:
+        return sum(values) / len(values) if values else 0.0
+
+    def train(self, raw_df):
+        if pd is None or np is None or XGBClassifier is None or IsolationForest is None:
+            return
         """Train models on synthetic historical data."""
         processed_data = []
         
@@ -116,10 +137,10 @@ class NetworkIntelligence:
             "cpu": latest["cpu"],
             "memory": latest["memory"],
             "link_status": latest["link_status"],
-            "latency_roll_mean": np.mean(latencies),
-            "packet_loss_roll_mean": np.mean(losses),
-            "cpu_roll_mean": np.mean(cpus),
-            "bandwidth_roll_mean": np.mean(bws)
+            "latency_roll_mean": self._mean(latencies),
+            "packet_loss_roll_mean": self._mean(losses),
+            "cpu_roll_mean": self._mean(cpus),
+            "bandwidth_roll_mean": self._mean(bws)
         }
         
         # XGBoost Failure Risk
@@ -149,6 +170,12 @@ class NetworkIntelligence:
             raw_score = self.iso_forest.score_samples([raw_feats])[0]
             anomaly_score = float(round(abs(raw_score), 3))
             is_anomaly = bool(pred == -1)
+        else:
+            # Fallback heuristic if IsolationForest not fitted
+            if latest["latency"] > 45.0 or latest["packet_loss"] > 1.5 or latest["cpu"] > 75.0:
+                is_anomaly = True
+                anomaly_score = round(0.5 + 0.4 * (max(latest["latency"]/150.0, latest["packet_loss"]/20.0, latest["cpu"]/100.0)), 3)
+                anomaly_score = min(anomaly_score, 0.999)
             
         # Root Cause Analysis and Explainable AI (XAI)
         root_cause = "Normal Operations"

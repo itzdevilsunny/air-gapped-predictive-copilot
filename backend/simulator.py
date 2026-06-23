@@ -1,8 +1,12 @@
 import random
 import time
 from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
+import math
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 ROUTERS = {
     "ISTRAC-BGL": "ISTRAC Bangalore",
@@ -153,7 +157,9 @@ class NetworkSimulator:
                 # Let's add rolling features and predictive targets during the data prep step
                 data.append(record)
                 
-        return pd.DataFrame(data)
+        if pd is not None:
+            return pd.DataFrame(data)
+        return data
 
     def set_solar_flare(self, active: bool, duration_steps: int = 15):
         self.solar_flare_active = active
@@ -189,11 +195,11 @@ class NetworkSimulator:
                 "Cartosat-3": {
                     "name": "Cartosat-3",
                     "type": "LEO (Imaging)",
-                    "altitude": round(505.2 + np.sin(np.radians(self.leo_step)) * 2.1, 2),
+                    "altitude": round(505.2 + math.sin(math.radians(self.leo_step)) * 2.1, 2),
                     "velocity": 7.62,
                     "snr": leo_snr,
                     "packet_loss": leo_loss,
-                    "temp": round(24.5 + np.cos(np.radians(self.leo_step)) * 6.2, 1),
+                    "temp": round(24.5 + math.cos(math.radians(self.leo_step)) * 6.2, 1),
                     "los": leo_in_los,
                     "lock_node": "ISTRAC-BGL" if leo_in_los else "NONE",
                     "orbit_angle": self.leo_step
