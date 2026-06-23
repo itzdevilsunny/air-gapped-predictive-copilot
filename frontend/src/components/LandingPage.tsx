@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, Server, Cpu, Radio, BookOpen, Lock } from 'lucide-react';
 
 interface LandingPageProps {
@@ -8,6 +8,19 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('isro-admin');
   const [password, setPassword] = useState('predictive-noc');
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash) {
+      const timer = setTimeout(() => {
+        const element = document.querySelector(hash);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +102,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
         <div className="mt-8 flex gap-4">
           <a
             href="#login-section"
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.pushState({}, '', '#login-section');
+              document.getElementById('login-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
             className="bg-noc-primary/20 hover:bg-noc-primary/30 text-noc-primary border border-noc-primary/45 px-6 py-2.5 rounded font-mono font-bold transition-all text-xs tracking-wider uppercase no-underline hover:shadow-glow-cyan"
           >
             Access Command Console
           </a>
           <a
             href="#problem-section"
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.pushState({}, '', '#problem-section');
+              document.getElementById('problem-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
             className="border border-noc-border hover:bg-noc-card/30 text-noc-text px-6 py-2.5 rounded font-mono transition-all text-xs tracking-wider uppercase no-underline"
           >
             Review Operations Playbook
