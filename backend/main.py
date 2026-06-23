@@ -9,6 +9,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from simulator import NetworkSimulator, ROUTERS
 from models import NetworkIntelligence
 from copilot import AirGappedCopilot
@@ -26,6 +29,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Path compatibility middleware to support situations where Vercel strips the /api prefix from routes
+@app.middleware("http")
+async def add_api_prefix_if_needed(request, call_next):
+    path = request.url.path
+    if not path.startswith("/api") and path not in ["/docs", "/redoc", "/openapi.json"] and not path.startswith("/ws"):
+        request.scope["path"] = "/api" + path
+    response = await call_next(request)
+    return response
 
 # Initialize engines
 simulator = NetworkSimulator(history_length=60)
@@ -468,6 +480,7 @@ def export_incident(req: ExportReportRequest):
     return {"status": "success", "html": html_content}
 
 @app.websocket("/ws/telemetry")
+@app.websocket("/api/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:

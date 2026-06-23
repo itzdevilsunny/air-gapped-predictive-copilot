@@ -36,7 +36,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
 
   const fetchSops = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/sops');
+      const res = await fetch('/api/sops');
       if (res.ok) {
         const data = await res.json();
         setSopsList(data);
@@ -48,7 +48,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
 
   const fetchCopilotStatus = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/copilot/status');
+      const res = await fetch('/api/copilot/status');
       if (res.ok) {
         const data = await res.json();
         setCopilotStatus(data);
@@ -76,7 +76,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
     formData.append('file', file);
     
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/sops/upload', {
+      const res = await fetch('/api/sops/upload', {
         method: 'POST',
         body: formData,
       });

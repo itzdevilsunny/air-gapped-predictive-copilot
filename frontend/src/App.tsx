@@ -21,8 +21,9 @@ import {
   ChevronsUp
 } from 'lucide-react';
 
-const BACKEND_URL = 'http://127.0.0.1:8000';
-const WS_URL = 'ws://127.0.0.1:8000/ws/telemetry';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+const WS_URL = import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/telemetry`;
+
 
 export const App: React.FC = () => {
   // Auth state

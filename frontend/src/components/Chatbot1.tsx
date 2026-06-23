@@ -191,7 +191,7 @@ export const Chatbot1: React.FC = () => {
         content: m.content
       }));
 
-      const res = await fetch('http://127.0.0.1:8000/api/chatbot1/chat', {
+      const res = await fetch('/api/chatbot1/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

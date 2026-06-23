@@ -82,9 +82,7 @@ const RadarDisplay: React.FC<{ satellites: Record<string, SatelliteData>; solarF
       // Radar sweep
       scanAngleRef.current = (scanAngleRef.current + 1.5) % 360;
       const sweepRad = (scanAngleRef.current * Math.PI) / 180;
-      const sweepGrad = ctx.createConicalGradient
-        ? undefined
-        : null;
+
 
       // Manual sweep arc approximation
       ctx.save();
