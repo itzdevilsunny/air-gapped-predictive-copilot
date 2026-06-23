@@ -8,6 +8,7 @@ interface RouterDetailsProps {
   routerState: RouterState;
   history: EnrichedHistoryPoint[];
   onMitigate: (routerId: string) => Promise<void>;
+  highlightSection?: 'predictions' | 'rootcause';
 }
 
 type ChartMetric = 'load' | 'network' | 'diagnostic';
@@ -17,6 +18,7 @@ export const RouterDetails: React.FC<RouterDetailsProps> = ({
   routerState,
   history,
   onMitigate,
+  highlightSection,
 }) => {
   const [activeChartTab, setActiveChartTab] = useState<ChartMetric>('load');
   const [copied, setCopied] = useState(false);
@@ -197,7 +199,9 @@ export const RouterDetails: React.FC<RouterDetailsProps> = ({
           <span className="text-xs font-mono text-noc-muted">{routerId} • IP: 10.100.{routerId === 'ISTRAC-BGL' ? '10' : routerId === 'SDSC-SHAR' ? '20' : '50'}.1</span>
         </div>
 
-        <div className="flex flex-col items-end">
+        <div className={`flex flex-col items-end px-2 py-1 rounded transition-all duration-500 ${
+          highlightSection === 'predictions' ? 'bg-noc-primary/10 ring-1 ring-noc-primary/50 shadow-glow-cyan animate-pulse' : ''
+        }`}>
           <span className="text-[10px] font-mono text-noc-muted">XGBoost Risk</span>
           <span className={`text-xl font-display font-bold ${
             analysis.failure_risk > 70 
@@ -318,7 +322,9 @@ export const RouterDetails: React.FC<RouterDetailsProps> = ({
       </div>
 
       {/* AI Diagnosis and Action Panel */}
-      <div className="flex-1 flex flex-col min-h-0 bg-[#030611]/50 border border-noc-border/30 rounded-lg p-3 overflow-y-auto">
+      <div className={`flex-1 flex flex-col min-h-0 bg-[#030611]/50 border border-noc-border/30 rounded-lg p-3 overflow-y-auto transition-all duration-500 ${
+        highlightSection === 'rootcause' ? 'ring-1 ring-noc-warning/60 bg-noc-warning/5 shadow-glow-warning animate-pulse' : ''
+      }`}>
         <h4 className="text-xs font-display tracking-widest text-noc-warning flex items-center gap-1.5 mb-2">
           <BarChart2 className="w-3.5 h-3.5" />
           EXPLAINABLE AI (XAI) DIAGNOSTIC

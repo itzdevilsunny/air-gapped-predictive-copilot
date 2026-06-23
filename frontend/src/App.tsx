@@ -44,6 +44,45 @@ export const App: React.FC = () => {
   const [utcTime, setUtcTime] = useState('');
   const [satelliteData, setSatelliteData] = useState<SatelliteTelemetry | null>(null);
 
+  // Tab/Routing state
+  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'overview') return 'overview';
+    if (tabParam === 'predictions') return 'predictions';
+    if (tabParam === 'anomalies') return 'anomalies';
+    if (tabParam === 'rootcause') return 'rootcause';
+    if (tabParam === 'copilot') return 'copilot';
+    if (tabParam === 'selfheal' || tabParam === 'heal') return 'selfheal';
+    return 'all';
+  });
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'overview') setActiveTab('overview');
+      else if (tabParam === 'predictions') setActiveTab('predictions');
+      else if (tabParam === 'anomalies') setActiveTab('anomalies');
+      else if (tabParam === 'rootcause') setActiveTab('rootcause');
+      else if (tabParam === 'copilot') setActiveTab('copilot');
+      else if (tabParam === 'selfheal' || tabParam === 'heal') setActiveTab('selfheal');
+      else setActiveTab('all');
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
+  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal', e: React.MouseEvent) => {
+    e.preventDefault();
+    const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
+    window.history.pushState({}, '', url);
+    setActiveTab(tab);
+    if (tab === 'overview') {
+      setIsSimOpen(true);
+    }
+  };
+
   const wsRef = useRef<WebSocket | null>(null);
 
   // Sync clock in UTC format for space center authenticity
@@ -292,17 +331,82 @@ export const App: React.FC = () => {
 
           {/* Dashboard Navigation Group */}
           <div className="flex items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
-            <a href="http://localhost:5175/?tab=overview" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 1: SIM</a>
+            <button
+              onClick={(e) => handleTabClick('all', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'all'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              ALL SENSORS
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=predictions" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 2: ML</a>
+            <button
+              onClick={(e) => handleTabClick('overview', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'overview'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 1: SIM
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=anomalies" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 3: ANOMALY</a>
+            <button
+              onClick={(e) => handleTabClick('predictions', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'predictions'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 2: ML
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=rootcause" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 4: RCA</a>
+            <button
+              onClick={(e) => handleTabClick('anomalies', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'anomalies'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 3: ANOMALY
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=copilot" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 5: COPILOT</a>
+            <button
+              onClick={(e) => handleTabClick('rootcause', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'rootcause'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 4: RCA
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5176/" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 6: HEAL</a>
+            <button
+              onClick={(e) => handleTabClick('copilot', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'copilot'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 5: COPILOT
+            </button>
+            <span className="text-noc-border px-1">|</span>
+            <button
+              onClick={(e) => handleTabClick('selfheal', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                activeTab === 'selfheal'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
+              }`}
+            >
+              PH 6: HEAL
+            </button>
           </div>
 
           {/* Trigger Failure Injection Deck */}
@@ -329,144 +433,193 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Grid View Area */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 flex flex-col gap-4 overflow-hidden mb-[390px] transition-all duration-300">
+      <main className={`flex-1 max-w-[1600px] w-full mx-auto p-4 flex flex-col gap-4 overflow-hidden transition-all duration-300 ${
+        activeTab === 'copilot' ? 'mb-[50px]' : isChatExpanded ? 'mb-[390px]' : 'mb-[50px]'
+      }`}>
         {/* Row 1: KPI Statistics Widgets */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* KPI 1: Latency */}
-          <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
-            <div>
-              <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Avg SLA Latency</span>
-              <span className="font-display text-xl font-bold text-noc-text">{kpis.avgLat} ms</span>
+        {activeTab !== 'copilot' && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* KPI 1: Latency */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Avg SLA Latency</span>
+                <span className="font-display text-xl font-bold text-noc-text">{kpis.avgLat} ms</span>
+              </div>
+              <div className="text-noc-primary p-1.5 bg-noc-primary/5 rounded border border-noc-primary/10">
+                <Activity className="w-4 h-4" />
+              </div>
             </div>
-            <div className="text-noc-primary p-1.5 bg-noc-primary/5 rounded border border-noc-primary/10">
-              <Activity className="w-4 h-4" />
+
+            {/* KPI 2: Max Loss */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Max Packet Loss</span>
+                <span className={`font-display text-xl font-bold ${kpis.maxLoss > 1.5 ? 'text-noc-danger animate-pulse' : 'text-noc-text'}`}>
+                  {kpis.maxLoss} %
+                </span>
+              </div>
+              <div className="text-noc-danger p-1.5 bg-noc-danger/5 rounded border border-noc-danger/10">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* KPI 3: System CPU */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Avg Grid Load</span>
+                <span className="font-display text-xl font-bold text-noc-text">{kpis.avgCpu} % CPU</span>
+              </div>
+              <div className="text-noc-purple p-1.5 bg-noc-purple/5 rounded border border-noc-purple/10">
+                <Database className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* KPI 4: Active Alarms */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Active Warnings</span>
+                <span className={`font-display text-xl font-bold ${alerts.length > 0 ? 'text-noc-danger animate-pulse' : 'text-noc-success'}`}>
+                  {alerts.length} ALARMS
+                </span>
+              </div>
+              <div className={`p-1.5 rounded border ${alerts.length > 0 ? 'bg-noc-danger/15 border-noc-danger/30 text-noc-danger animate-bounce' : 'bg-noc-success/15 border-noc-success/30 text-noc-success'}`}>
+                <AlertCircle className="w-4 h-4" />
+              </div>
             </div>
           </div>
+        )}
 
-          {/* KPI 2: Max Loss */}
-          <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
-            <div>
-              <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Max Packet Loss</span>
-              <span className={`font-display text-xl font-bold ${kpis.maxLoss > 1.5 ? 'text-noc-danger animate-pulse' : 'text-noc-text'}`}>
-                {kpis.maxLoss} %
-              </span>
-            </div>
-            <div className="text-noc-danger p-1.5 bg-noc-danger/5 rounded border border-noc-danger/10">
-              <AlertCircle className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* KPI 3: System CPU */}
-          <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
-            <div>
-              <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Avg Grid Load</span>
-              <span className="font-display text-xl font-bold text-noc-text">{kpis.avgCpu} % CPU</span>
-            </div>
-            <div className="text-noc-purple p-1.5 bg-noc-purple/5 rounded border border-noc-purple/10">
-              <Database className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* KPI 4: Active Alarms */}
-          <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
-            <div>
-              <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Active Warnings</span>
-              <span className={`font-display text-xl font-bold ${alerts.length > 0 ? 'text-noc-danger animate-pulse' : 'text-noc-success'}`}>
-                {alerts.length} ALARMS
-              </span>
-            </div>
-            <div className={`p-1.5 rounded border ${alerts.length > 0 ? 'bg-noc-danger/15 border-noc-danger/30 text-noc-danger animate-bounce' : 'bg-noc-success/15 border-noc-success/30 text-noc-success'}`}>
-              <AlertCircle className="w-4 h-4" />
-            </div>
-          </div>
-        </div>
-
-        {/* Row 2: Topology Map split with Router Detail Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
-          {/* Left Area (8 cols on lg): Topology Map & Alerts Log */}
-          <div className="lg:col-span-7 flex flex-col gap-4">
-            <TopologyMap 
-              telemetryData={telemetryData} 
-              selectedRouterId={selectedRouterId}
-              onSelectRouter={setSelectedRouterId}
-            />
-
-            <AlertsPanel 
-              alerts={alerts}
-              telemetryData={telemetryData}
-              onMitigate={handleMitigate}
-            />
-
-            <SatelliteMonitor
-              data={satelliteData}
-              onInjectSolarFlare={async (active) => {
-                await fetch(`${BACKEND_URL}/api/simulate-solar-flare`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ active, duration_steps: 30 })
-                });
-              }}
-            />
-          </div>
-
-          {/* Right Area (5 cols on lg): Inspector Details Panel */}
-          <div className="lg:col-span-5">
-            {selectedRouterId && telemetryData[selectedRouterId] ? (
-              <RouterDetails 
-                routerId={selectedRouterId}
-                routerState={telemetryData[selectedRouterId]}
-                history={routerHistory[selectedRouterId] || []}
-                onMitigate={handleMitigate}
+        {/* Row 2: Main Layout */}
+        {activeTab === 'copilot' ? (
+          <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-noc-border rounded-xl p-4 glass-panel min-h-[500px]">
+            <h3 className="text-xs font-mono font-bold text-noc-primary mb-3 tracking-widest uppercase">
+              PHASE 5: AIR-GAPPED NLP COPILOT COMMAND INTERFACE
+            </h3>
+            <div className="flex-1 min-h-0 bg-[#030611]/80 rounded border border-noc-border/60">
+              <CopilotChat 
+                onSendMessage={handleSendCopilotQuery}
+                telemetryData={telemetryData}
+                currentRouterId={selectedRouterId}
               />
-            ) : (
-              <div className="glass-panel rounded-xl p-6 flex flex-col items-center justify-center text-center h-full text-noc-muted">
-                <AlertCircle className="w-12 h-12 text-noc-primary/20 mb-2" />
-                <h3 className="font-display font-semibold text-sm text-noc-text uppercase">Node Inspection Offline</h3>
-                <p className="text-xs text-noc-muted max-w-xs mt-1">Select a router node on the topology map to load metrics, historical timeline logs, and recommended cisco fixes.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 overflow-hidden min-h-0">
+            {/* Left Area: Topology Map, Alerts Panel, Satellite Monitor */}
+            {activeTab !== 'predictions' && activeTab !== 'rootcause' && (
+              <div className={`flex flex-col gap-4 overflow-y-auto ${
+                activeTab === 'overview' ? 'lg:col-span-12' : 'lg:col-span-7'
+              }`}>
+                <TopologyMap 
+                  telemetryData={telemetryData} 
+                  selectedRouterId={selectedRouterId}
+                  onSelectRouter={setSelectedRouterId}
+                />
+
+                {(activeTab === 'all' || activeTab === 'anomalies' || activeTab === 'selfheal') && (
+                  <div className={activeTab === 'selfheal' ? 'border border-noc-success/40 shadow-glow-green rounded-xl transition-all duration-500' : ''}>
+                    <AlertsPanel 
+                      alerts={alerts}
+                      telemetryData={telemetryData}
+                      onMitigate={handleMitigate}
+                    />
+                  </div>
+                )}
+
+                {(activeTab === 'all' || activeTab === 'overview') && (
+                  <SatelliteMonitor
+                    data={satelliteData}
+                    onInjectSolarFlare={async (active) => {
+                      await fetch(`${BACKEND_URL}/api/simulate-solar-flare`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ active, duration_steps: 30 })
+                      });
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Split layout view for Predictions or Rootcause */}
+            {(activeTab === 'predictions' || activeTab === 'rootcause') && (
+              <div className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto">
+                <TopologyMap 
+                  telemetryData={telemetryData} 
+                  selectedRouterId={selectedRouterId}
+                  onSelectRouter={setSelectedRouterId}
+                />
+              </div>
+            )}
+
+            {/* Right Area: Router Details */}
+            {activeTab !== 'overview' && (
+              <div className="lg:col-span-5 overflow-y-auto">
+                {selectedRouterId && telemetryData[selectedRouterId] ? (
+                  <RouterDetails 
+                    routerId={selectedRouterId}
+                    routerState={telemetryData[selectedRouterId]}
+                    history={routerHistory[selectedRouterId] || []}
+                    onMitigate={handleMitigate}
+                    highlightSection={
+                      activeTab === 'predictions' ? 'predictions' :
+                      activeTab === 'rootcause' ? 'rootcause' :
+                      undefined
+                    }
+                  />
+                ) : (
+                  <div className="glass-panel rounded-xl p-6 flex flex-col items-center justify-center text-center h-full text-noc-muted">
+                    <AlertCircle className="w-12 h-12 text-noc-primary/20 mb-2" />
+                    <h3 className="font-display font-semibold text-sm text-noc-text uppercase">Node Inspection Offline</h3>
+                    <p className="text-xs text-noc-muted max-w-xs mt-1">Select a router node on the topology map to load metrics, historical timeline logs, and recommended cisco fixes.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        </div>
+        )}
       </main>
 
       {/* Slide-Up AI Operations Chat Terminal */}
-      <div 
-        className={`fixed bottom-0 left-0 right-0 z-40 transition-all duration-300 ${
-          isChatExpanded ? 'h-[370px]' : 'h-[44px]'
-        }`}
-      >
-        {/* Toggle Bar */}
+      {activeTab !== 'copilot' && (
         <div 
-          id="btn-chat-toggle"
-          onClick={() => setIsChatExpanded(!isChatExpanded)}
-          className="bg-[#030611] border-t border-noc-border/80 p-2.5 cursor-pointer hover:bg-noc-card flex justify-between items-center px-6 transition-colors shadow-2xl select-none"
+          className={`fixed bottom-0 left-0 right-0 z-40 transition-all duration-300 ${
+            isChatExpanded ? 'h-[370px]' : 'h-[44px]'
+          }`}
         >
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-noc-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-noc-primary"></span>
-            </span>
-            <span className="text-noc-primary font-bold uppercase tracking-wider">AI Operations Assistant Terminal</span>
-            <span className="text-noc-muted text-[10px] hidden md:inline">• Live SOP RAG and offline network knowledge index loaded</span>
+          {/* Toggle Bar */}
+          <div 
+            id="btn-chat-toggle"
+            onClick={() => setIsChatExpanded(!isChatExpanded)}
+            className="bg-[#030611] border-t border-noc-border/80 p-2.5 cursor-pointer hover:bg-noc-card flex justify-between items-center px-6 transition-colors shadow-2xl select-none"
+          >
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-noc-primary opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-noc-primary"></span>
+              </span>
+              <span className="text-noc-primary font-bold uppercase tracking-wider">AI Operations Assistant Terminal</span>
+              <span className="text-noc-muted text-[10px] hidden md:inline">• Live SOP RAG and offline network knowledge index loaded</span>
+            </div>
+            
+            <div className="flex items-center gap-2 text-xs text-noc-muted font-mono">
+              <span className="text-[10px]">{isChatExpanded ? 'CLOSE TERMINAL' : 'EXPAND TERMINAL'}</span>
+              <ChevronsUp className={`w-4 h-4 transition-transform duration-300 ${isChatExpanded ? 'rotate-180' : ''}`} />
+            </div>
           </div>
-          
-          <div className="flex items-center gap-2 text-xs text-noc-muted font-mono">
-            <span className="text-[10px]">{isChatExpanded ? 'CLOSE TERMINAL' : 'EXPAND TERMINAL'}</span>
-            <ChevronsUp className={`w-4 h-4 transition-transform duration-300 ${isChatExpanded ? 'rotate-180' : ''}`} />
-          </div>
-        </div>
 
-        {/* Chat Component Body */}
-        {isChatExpanded && (
-          <div className="h-[326px]">
-            <CopilotChat 
-              onSendMessage={handleSendCopilotQuery}
-              telemetryData={telemetryData}
-              currentRouterId={selectedRouterId}
-            />
-          </div>
-        )}
-      </div>
+          {/* Chat Component Body */}
+          {isChatExpanded && (
+            <div className="h-[326px]">
+              <CopilotChat 
+                onSendMessage={handleSendCopilotQuery}
+                telemetryData={telemetryData}
+                currentRouterId={selectedRouterId}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Failure Simulation Deck Modal */}
       <SimulationController 

@@ -37,49 +37,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
         </div>
         <div className="flex gap-4">
           <a
-            href="http://localhost:5175/?tab=overview"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=overview"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 1 (SIM)
           </a>
           <a
-            href="http://localhost:5175/?tab=predictions"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=predictions"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 2 (ML)
           </a>
           <a
-            href="http://localhost:5175/?tab=anomalies"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=anomalies"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 3 (ANOMALY)
           </a>
           <a
-            href="http://localhost:5175/?tab=rootcause"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=rootcause"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 4 (ROOT CAUSE)
           </a>
           <a
-            href="http://localhost:5175/?tab=copilot"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=copilot"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 5 (COPILOT)
           </a>
           <a
-            href="http://localhost:5176/"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="?tab=selfheal"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 6 (SELF-HEAL)
