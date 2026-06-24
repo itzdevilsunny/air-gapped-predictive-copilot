@@ -121,14 +121,21 @@ def fetch_live_telemetry() -> Dict[str, Dict]:
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """SELECT s.*, r.name AS router_name
-               FROM network_snapshots s
-               JOIN router_registry r ON s.router_id = r.id
-               WHERE s.id IN (
-                   SELECT MAX(id) FROM network_snapshots GROUP BY router_id
-               )"""
-        ).fetchall()
+        
+        routers = conn.execute("SELECT id FROM router_registry").fetchall()
+        rows = []
+        for r in routers:
+            rid = r["id"]
+            row = conn.execute(
+                """SELECT s.*, r.name AS router_name
+                   FROM network_snapshots s
+                   JOIN router_registry r ON s.router_id = r.id
+                   WHERE s.router_id = ?
+                   ORDER BY s.timestamp DESC LIMIT 1""",
+                (rid,)
+            ).fetchone()
+            if row:
+                rows.append(row)
         conn.close()
         telemetry = {}
         for row in rows:

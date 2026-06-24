@@ -6,12 +6,55 @@ interface ChatMessage {
   content: string;
 }
 
+const cleanContent = (text: string) => {
+  return text.replace(/\[ACTION:[\s\S]*?\]/g, '').trim();
+};
+
+const renderMessageContent = (content: string) => {
+  const cleaned = cleanContent(content);
+  const parts = cleaned.split(/(```[\s\S]*?```)/g);
+  
+  return parts.map((part, idx) => {
+    if (part.startsWith('```')) {
+      const match = part.match(/```(\w*)\n([\s\S]*?)```/);
+      const code = match ? match[2] : part.slice(3, -3);
+      return (
+        <pre key={idx} className="bg-slate-950 p-2.5 rounded-lg my-2 font-mono text-[10px] text-cyan-400 border border-slate-800/80 overflow-x-auto select-text">
+          <code>{code.trim()}</code>
+        </pre>
+      );
+    }
+    
+    const subparts = part.split(/(\[System[\s\S]*?\])/g);
+    return subparts.map((subpart, sIdx) => {
+      if (subpart.startsWith('[System')) {
+        const cleanSub = subpart.slice(1, -1);
+        const isDiag = cleanSub.includes('Diagnostic Output:');
+        const contentVal = isDiag 
+          ? cleanSub.replace('Diagnostic Output:', '').trim()
+          : cleanSub.replace('System:', '').trim();
+          
+        return (
+          <div key={`${idx}-${sIdx}`} className="bg-slate-950/90 border border-emerald-500/30 text-emerald-400 p-2.5 rounded-lg my-2 font-mono text-[10px] flex flex-col gap-1 shadow-inner select-text">
+            <span className="text-[8px] uppercase tracking-wider text-emerald-500 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              NOC Agent Terminal Action
+            </span>
+            <span className="whitespace-pre-wrap">{contentVal}</span>
+          </div>
+        );
+      }
+      return <span key={`${idx}-${sIdx}`} className="whitespace-pre-wrap">{subpart}</span>;
+    });
+  });
+};
+
 export const Chatbot1: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: 'Hello, I am Chitthi. I can answer questions about ISRO Predictive NOC and speak the answers aloud if you wish. Speak or type your query!'
+      content: 'Hello, I am Chitti the Robot, Version 2.0. Speed: 1 Terahertz. Memory: 1 Zettabyte. Ask me any question regarding the ISRO NOC. Dot.'
     }
   ]);
   const [input, setInput] = useState('');
@@ -102,9 +145,39 @@ export const Chatbot1: React.FC = () => {
     if (isMuted) return;
     try {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+      
+      let chittiText = text;
+      // Append a terminal "Dot" if not present to mimic Chitti's robot cadence
+      if (chittiText && !chittiText.endsWith('Dot.') && !chittiText.endsWith('Dot')) {
+        chittiText = `${chittiText} Dot.`;
+      }
+      
+      const utterance = new SpeechSynthesisUtterance(chittiText);
+      const voices = window.speechSynthesis.getVoices();
+      
+      // Select best available male/robotic voice
+      let chittiVoice = voices.find(v => v.lang.includes('en-IN') && v.name.toLowerCase().includes('male'));
+      if (!chittiVoice) {
+        chittiVoice = voices.find(v => v.lang.includes('en-IN'));
+      }
+      if (!chittiVoice) {
+        chittiVoice = voices.find(v => v.name.toLowerCase().includes('google uk english male') || v.name.toLowerCase().includes('google us english male'));
+      }
+      if (!chittiVoice) {
+        chittiVoice = voices.find(v => v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('male'));
+      }
+      if (!chittiVoice) {
+        chittiVoice = voices.find(v => v.lang.startsWith('en'));
+      }
+      
+      if (chittiVoice) {
+        utterance.voice = chittiVoice;
+      }
+      
+      // Apply Chitti's deep, fast robot voice characteristics
+      utterance.pitch = 0.85; // Deeper register
+      utterance.rate = 1.12;  // Quick, robotic delivery
+      
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.error('Speech synthesis failed', e);
@@ -206,11 +279,40 @@ export const Chatbot1: React.FC = () => {
         throw new Error('Chatbot response error');
       }
 
-      const data = await res.json();
-      const botAnswer = data.answer || "No response received.";
-      
-      setMessages(prev => [...prev, { role: 'assistant', content: botAnswer }]);
-      speakText(botAnswer);
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error('No reader available');
+
+      // Append an empty assistant message first and hide loader
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      setLoading(false);
+
+      let accumulatedAnswer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedAnswer += chunk;
+        
+        // Update the last assistant message
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = {
+              role: 'assistant',
+              content: accumulatedAnswer
+            };
+          }
+          return updated;
+        });
+      }
+
+      // Strip action tags and system diagnostic messages for voice audio feedback
+      const voiceText = accumulatedAnswer
+        .replace(/\[ACTION:[\s\S]*?\]/g, '')
+        .replace(/\[System[\s\S]*?\]/g, '')
+        .trim();
+      speakText(voiceText);
     } catch (err) {
       console.error(err);
       setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I had trouble reaching Chitthi server." }]);
@@ -336,7 +438,7 @@ export const Chatbot1: React.FC = () => {
                       : 'bg-slate-800/80 border border-slate-700/30 text-slate-200 rounded-tl-none'
                   }`}
                 >
-                  {m.content}
+                  {renderMessageContent(m.content)}
                 </div>
               </div>
             ))}

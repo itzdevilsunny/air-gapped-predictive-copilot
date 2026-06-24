@@ -64,3 +64,8 @@ desktop.ini
 influxdb/
 influxdb-data/
 influxdb.zip
+
+# --- Runtime / scratch ---
+scratch/
+injections.json
+generator.log

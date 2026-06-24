@@ -40,13 +40,9 @@ BASELINES = {
 
 def analyze_root_cause(db_conn: sqlite3.Connection) -> Dict[str, Any]:
     """Correlates hard rules and XGBoost predictions to determine root cause and confidence."""
-    # 1. Load the XGBoost model if available
-    xgb_payload = None
-    if os.path.exists(XGB_MODEL_PATH):
-        try:
-            xgb_payload = joblib.load(XGB_MODEL_PATH)
-        except Exception as e:
-            logger.warning(f"Failed to load XGBoost model for root cause engine: {e}")
+    # 1. Load the XGBoost model if available via phase2_predictor cache
+    import phase2_predictor
+    xgb_payload = phase2_predictor.load_model_cached()
 
     # Fetch router registry
     routers = db_conn.execute("SELECT id, name FROM router_registry").fetchall()

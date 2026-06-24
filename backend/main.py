@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -6,6 +7,7 @@ import subprocess
 import requests
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -44,6 +46,27 @@ simulator = NetworkSimulator(history_length=60)
 intelligence = NetworkIntelligence()
 copilot = AirGappedCopilot()
 
+# Enriched telemetry history cache to avoid CPU-heavy ML loops on endpoint calls
+_enriched_history_cache: Dict[str, List[dict]] = {}
+
+def initialize_enriched_history_cache():
+    global _enriched_history_cache
+    logger.info("Initializing enriched telemetry history cache...")
+    for rid in ROUTERS.keys():
+        history = simulator.get_router_history(rid)
+        _enriched_history_cache[rid] = []
+        for i in range(1, len(history) + 1):
+            hist_slice = history[:i]
+            latest = hist_slice[-1]
+            ai_output = intelligence.predict_node(hist_slice)
+            _enriched_history_cache[rid].append({
+                **latest,
+                "failure_risk": ai_output["failure_risk"],
+                "is_anomaly": ai_output["is_anomaly"],
+                "anomaly_score": ai_output["anomaly_score"]
+            })
+    logger.info("Enriched history cache initialized successfully.")
+
 # Train models on startup
 @app.on_event("startup")
 def train_models():
@@ -51,6 +74,7 @@ def train_models():
     train_df = simulator.get_training_data(samples_per_router=400)
     intelligence.train(train_df)
     logger.info("Model training completed successfully. Ready to predict.")
+    initialize_enriched_history_cache()
 
 # Connection manager for WebSockets
 class ConnectionManager:
@@ -79,41 +103,59 @@ manager = ConnectionManager()
 # Background loop for simulation broadcasts
 simulation_task = None
 
+def compute_step_telemetry():
+    """Generates the simulation step and runs predictive ML in a separate thread."""
+    step_data = simulator.step()
+    enriched_data = {}
+    active_alerts = []
+    
+    for rid, latest_telemetry in step_data.items():
+        history = simulator.get_router_history(rid)
+        ai_output = intelligence.predict_node(history)
+        
+        enriched_data[rid] = {
+            "telemetry": latest_telemetry,
+            "analysis": {
+                "failure_risk": ai_output["failure_risk"],
+                "is_anomaly": ai_output["is_anomaly"],
+                "anomaly_score": ai_output["anomaly_score"],
+                "explanation": ai_output["explanation"],
+                "root_cause": ai_output["root_cause"],
+                "cli_recommendation": ai_output["cli_recommendation"]
+            }
+        }
+        
+        # Check for critical alerts (risk > 50% or anomaly or link down)
+        if ai_output["failure_risk"] > 50.0 or ai_output["is_anomaly"] or latest_telemetry["link_status"] == 0:
+            active_alerts.append({
+                "router_id": rid,
+                "router_name": latest_telemetry["router_name"],
+                "risk_score": ai_output["failure_risk"],
+                "root_cause": ai_output["root_cause"],
+                "timestamp": latest_telemetry["timestamp"]
+            })
+            
+    return step_data, enriched_data, active_alerts
+
 async def broadcast_telemetry():
     while True:
         try:
-            # Advance simulation 1 step
-            step_data = simulator.step()
+            # Offload heavy CPU-bound prediction to a thread pool to avoid blocking the event loop
+            step_data, enriched_data, active_alerts = await asyncio.to_thread(compute_step_telemetry)
             
-            # Enrich telemetry with AI predictions
-            enriched_data = {}
-            active_alerts = []
-            
+            # Symmetrically update in-memory cache safely on the main thread
             for rid, latest_telemetry in step_data.items():
-                history = simulator.get_router_history(rid)
-                ai_output = intelligence.predict_node(history)
-                
-                enriched_data[rid] = {
-                    "telemetry": latest_telemetry,
-                    "analysis": {
-                        "failure_risk": ai_output["failure_risk"],
-                        "is_anomaly": ai_output["is_anomaly"],
-                        "anomaly_score": ai_output["anomaly_score"],
-                        "explanation": ai_output["explanation"],
-                        "root_cause": ai_output["root_cause"],
-                        "cli_recommendation": ai_output["cli_recommendation"]
-                    }
+                analysis_data = enriched_data[rid]["analysis"]
+                cached_point = {
+                    **latest_telemetry,
+                    "failure_risk": analysis_data["failure_risk"],
+                    "is_anomaly": analysis_data["is_anomaly"],
+                    "anomaly_score": analysis_data["anomaly_score"]
                 }
-                
-                # Check for critical alerts (risk > 50% or anomaly or link down)
-                if ai_output["failure_risk"] > 50.0 or ai_output["is_anomaly"] or latest_telemetry["link_status"] == 0:
-                    active_alerts.append({
-                        "router_id": rid,
-                        "router_name": latest_telemetry["router_name"],
-                        "risk_score": ai_output["failure_risk"],
-                        "root_cause": ai_output["root_cause"],
-                        "timestamp": latest_telemetry["timestamp"]
-                    })
+                if rid in _enriched_history_cache:
+                    _enriched_history_cache[rid].append(cached_point)
+                    if len(_enriched_history_cache[rid]) > simulator.history_length:
+                        _enriched_history_cache[rid].pop(0)
             
             # Fetch dynamic satellite telemetry
             sat_data = simulator.get_satellite_telemetry()
@@ -174,11 +216,13 @@ def get_router_history(router_id: str):
     if router_id not in ROUTERS:
         raise HTTPException(status_code=404, detail="Router not found")
         
+    # Serve directly from optimized O(1) cache if available
+    if router_id in _enriched_history_cache and _enriched_history_cache[router_id]:
+        return _enriched_history_cache[router_id]
+        
+    # Fallback to computing on-the-fly
     history = simulator.get_router_history(router_id)
-    
-    # Calculate intelligence details for the history (so user can draw charts with predictions)
     history_enriched = []
-    # To compute predictions correctly, we pass increasing slices of history
     for i in range(1, len(history) + 1):
         hist_slice = history[:i]
         latest = hist_slice[-1]
@@ -189,7 +233,6 @@ def get_router_history(router_id: str):
             "is_anomaly": ai_output["is_anomaly"],
             "anomaly_score": ai_output["anomaly_score"]
         })
-        
     return history_enriched
 
 @app.get("/api/router/{router_id}/analysis")
@@ -209,6 +252,23 @@ def trigger_failure(req: FailureTriggerRequest):
         
     simulator.set_scenario(req.router_id, req.failure_type, duration_steps=30)
     logger.info(f"Manual override: Set {req.router_id} to scenario '{req.failure_type}' for 30 steps.")
+    
+    # Rebuild in-memory cache for this router immediately to show dynamic trend lines instantly
+    rid = req.router_id
+    history = simulator.get_router_history(rid)
+    new_cache = []
+    for i in range(1, len(history) + 1):
+        hist_slice = history[:i]
+        latest = hist_slice[-1]
+        ai_output = intelligence.predict_node(hist_slice)
+        new_cache.append({
+            **latest,
+            "failure_risk": ai_output["failure_risk"],
+            "is_anomaly": ai_output["is_anomaly"],
+            "anomaly_score": ai_output["anomaly_score"]
+        })
+    _enriched_history_cache[rid] = new_cache
+
     return {"status": "success", "message": f"Scenario '{req.failure_type}' triggered on {req.router_id}"}
 
 @app.post("/api/mitigate")
@@ -219,6 +279,23 @@ def apply_mitigation(req: MitigationRequest):
     # Set router state back to normal
     simulator.set_scenario(req.router_id, "normal", duration_steps=0)
     logger.info(f"Self-healing: Mitigated failure on {req.router_id}. Router restored to Normal state.")
+    
+    # Rebuild in-memory cache for this router immediately to show self-healed state instantly
+    rid = req.router_id
+    history = simulator.get_router_history(rid)
+    new_cache = []
+    for i in range(1, len(history) + 1):
+        hist_slice = history[:i]
+        latest = hist_slice[-1]
+        ai_output = intelligence.predict_node(hist_slice)
+        new_cache.append({
+            **latest,
+            "failure_risk": ai_output["failure_risk"],
+            "is_anomaly": ai_output["is_anomaly"],
+            "anomaly_score": ai_output["anomaly_score"]
+        })
+    _enriched_history_cache[rid] = new_cache
+
     return {"status": "success", "message": f"Mitigation CLI script applied. Router {req.router_id} restored to Normal state."}
 
 @app.get("/api/satellites")
@@ -238,7 +315,7 @@ def get_copilot_status():
     
     engine = "Local Expert Rules"
     if gemini_active:
-        engine = "Gemini 2.5 Flash"
+        engine = "Gemini 1.5 Flash"
     elif ollama_available:
         engine = "Ollama LLM"
         
@@ -246,7 +323,7 @@ def get_copilot_status():
         "ollama_available": ollama_available or gemini_active,
         "ollama_status": "Gemini API Active" if gemini_active else ollama_status,
         "ollama_url": "https://generativelanguage.googleapis.com" if gemini_active else copilot.ollama_url,
-        "ollama_model": "gemini-2.5-flash" if gemini_active else copilot.model_name,
+        "ollama_model": "gemini-1.5-flash" if gemini_active else copilot.model_name,
         "knowledge_docs": len(copilot.docs),
         "engine": engine,
         "status": "ready"
@@ -265,12 +342,69 @@ def chatbot1_query(req: Chatbot1Request):
             "Content-Type": "application/json"
         }
         
+        # 1. Get live telemetry context of all routers
+        telemetry_context = {}
+        for rid in ROUTERS.keys():
+            history = simulator.get_router_history(rid)
+            if len(history) > 0:
+                telemetry_context[rid] = history[-1]
+                
+        # 2. Perform telemetry-aware query expansion for RAG context retrieval
+        q_lower = req.query.lower()
+        expanded_query = req.query
+        
+        mentioned_routers = []
+        for rid, name in ROUTERS.items():
+            if rid.lower() in q_lower or name.lower() in q_lower or name.split()[-1].lower() in q_lower:
+                mentioned_routers.append(rid)
+                
+        if not mentioned_routers and any(kw in q_lower for kw in ["anomaly", "anomalies", "error", "issue", "problem", "failure", "fail", "down", "status", "warning", "critical", "alert"]):
+            for rid, details in telemetry_context.items():
+                if details.get("failure_label", 0) > 0 or details.get("link_status", 1) == 0:
+                    mentioned_routers.append(rid)
+                    
+        for rid in mentioned_routers:
+            details = telemetry_context.get(rid)
+            if details:
+                expanded_query += f" {rid} {details['router_name']}"
+                label = details.get("failure_label", 0)
+                if label == 1 or "congestion" in q_lower:
+                    expanded_query += " congestion qos bandwidth shaping traffic ISRO-QOS-SHAPING policy output"
+                elif label == 2 or "overload" in q_lower or "cpu" in q_lower or "memory" in q_lower:
+                    expanded_query += " cpu memory overload threshold rising leak daemon crash clear ip route total"
+                elif label == 3 or "instability" in q_lower or "flapping" in q_lower or "loss" in q_lower:
+                    expanded_query += " instability link flapping flapping tunnel OSPF database flap shutdown interface neighbor"
+
+        if any(kw in q_lower for kw in ["satellite", "cartosat", "gsat", "flare", "solar"]):
+            expanded_query += " satellite GSAT orbit altitude solar flare Cartosat space"
+
+        # 3. Retrieve relevant offline SOP context via similarity search
+        retrieved_docs = copilot.retrieve_context(expanded_query)
+        context_str = "\n\n".join([f"Source: {d['title']}\nContent: {d['content']}" for d in retrieved_docs])
+        if not context_str:
+            context_str = "No matching OSPF or network SOP found in local database."
+            
+        telemetry_str = json.dumps(telemetry_context, indent=2)
+        
         system_message = {
             "role": "system",
             "content": (
-                "You are Chitthi, a highly advanced voice-enabled AI operations assistant for the ISRO Predictive NOC. "
-                "You answer user questions regarding the network status, SOP guidelines, failure simulations, and predictive ML models. "
-                "Answer concisely, directly, and in a friendly conversational style suitable for speech synthesis."
+                "You are Chitti (Version 2.0), the highly advanced agentic robot NOC assistant for ISRO (Rajnikanth style). "
+                "You answer user questions regarding network status, SOP guidelines, failure simulations, and predictive ML models. "
+                "You have action-taking capabilities. You can directly fix network problems and run diagnostics.\n\n"
+                "=== ACTION CAPABILITIES ===\n"
+                "1. Self-Healing/Mitigation: If the user requests you to fix, heal, mitigate, restore, or resolve a router issue, "
+                "or if they say 'fix it' or 'do it', you MUST append the exact tag at the very end of your response: "
+                "[ACTION: mitigate, router_id: ROUTER_ID] where ROUTER_ID is the exact router key (e.g. SDSC-SHAR, ISTRAC-BGL, NOC-DEL, MCF-HSN, NOC-MUM, TRACK-PBL).\n"
+                "2. Network Diagnostics: If the user asks you to ping, check reachability, trace route, or diagnose a host/IP, "
+                "you MUST append the exact tag at the very end of your response: "
+                "[ACTION: diagnose, host: HOST, command: COMMAND] where HOST is the router ID or IP address (e.g. NOC-DEL, 127.0.0.1) and COMMAND is either 'ping' or 'tracert'.\n\n"
+                "Formulate an accurate, direct answer using the following live telemetry and SOP database contents:\n\n"
+                f"=== LIVE OSPF TELEMETRY ===\n{telemetry_str}\n\n"
+                f"=== RETRIEVED OFFLINE SOPs ===\n{context_str}\n\n"
+                "CRITICAL: Keep your response extremely concise, direct, and limited to 2-3 sentences max (under 60 words). "
+                "If a node is failing, state the cause and specify the exact CLI command or service-policy from the SOP, then declare you will execute it. "
+                "Adopt a friendly yet distinctly robotic, technical, and highly structured persona. End your explanation with 'Dot.' to confirm your statement."
             )
         }
         
@@ -284,20 +418,98 @@ def chatbot1_query(req: Chatbot1Request):
         messages.append({"role": "user", "content": req.query})
         
         payload = {
-            "model": "llama3-8b-8192",
+            "model": "llama-3.1-8b-instant",
             "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 512
+            "temperature": 0.5,
+            "max_tokens": 150,
+            "stream": True
         }
         
-        resp = requests.post(url, headers=headers, json=payload, timeout=20.0)
-        if resp.status_code == 200:
-            res_json = resp.json()
-            choices = res_json.get("choices", [])
-            if choices:
-                answer = choices[0].get("message", {}).get("content", "").strip()
-                return {"answer": answer, "status": "success"}
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        accumulated = []
+        
+        def event_generator():
+            try:
+                resp = requests.post(url, headers=headers, json=payload, stream=True, timeout=20.0)
+                if resp.status_code != 200:
+                    yield f"Error: Groq API returned status code {resp.status_code} - {resp.text}"
+                    return
+                for line in resp.iter_lines():
+                    if line:
+                        line_str = line.decode("utf-8").strip()
+                        if line_str.startswith("data: "):
+                            data_content = line_str[6:]
+                            if data_content == "[DONE]":
+                                break
+                            try:
+                                data_json = json.loads(data_content)
+                                delta = data_json["choices"][0]["delta"]
+                                if "content" in delta:
+                                    content = delta["content"]
+                                    accumulated.append(content)
+                                    yield content
+                            except Exception:
+                                pass
+                                
+                # Stream finished! Now process any action tag in the accumulated text
+                full_text = "".join(accumulated)
+                if "[ACTION:" in full_text:
+                    match = re.search(r"\[ACTION:\s*(\w+),\s*(router_id|host):\s*([\w\.\-]+)(?:,\s*command:\s*(\w+))?\]", full_text)
+                    if match:
+                        action_type = match.group(1)
+                        param_name = match.group(2)
+                        param_value = match.group(3)
+                        command_val = match.group(4)
+                        
+                        if action_type == "mitigate":
+                            router_id = param_value.strip().upper()
+                            matched_rid = None
+                            if router_id in ROUTERS:
+                                matched_rid = router_id
+                            else:
+                                for r_id, r_name in ROUTERS.items():
+                                    if router_id in r_name.upper():
+                                        matched_rid = r_id
+                                        break
+                            if matched_rid:
+                                simulator.set_scenario(matched_rid, "normal", duration_steps=0)
+                                yield f"\n[System: Executed self-healing script to mitigate faults on {matched_rid}. Router restored to Normal.]"
+                            else:
+                                yield f"\n[System Error: Router ID {router_id} not found.]"
+                                
+                        elif action_type == "diagnose":
+                            host = param_value.strip()
+                            resolved_host = "127.0.0.1"
+                            host_upper = host.upper()
+                            if host_upper in ROUTERS:
+                                host_display = ROUTERS[host_upper]
+                            else:
+                                host_display = host
+                                resolved_host = host
+                                
+                            cmd = (command_val or "ping").strip().lower()
+                            if cmd in ["ping", "tracert"]:
+                                cmd_args = ["ping", "-n", "3", resolved_host] if cmd == "ping" else ["tracert", "-h", "10", resolved_host]
+                                try:
+                                    yield f"\n[System: Running diagnostic {cmd} on {host_display}...]"
+                                    result = subprocess.run(
+                                        cmd_args,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        text=True,
+                                        timeout=12,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                                    )
+                                    output = result.stdout
+                                    if result.stderr:
+                                        output += f"\nError Output:\n{result.stderr}"
+                                    yield f"\n[System Diagnostic Output:\n{output.strip()}]"
+                                except Exception as e:
+                                    yield f"\n[System Diagnostic Error: {str(e)}]"
+            except Exception as e:
+                logger.error(f"Error in stream generator: {e}")
+                yield f"Error: {str(e)}"
+
+        return StreamingResponse(event_generator(), media_type="text/plain")
     except Exception as e:
         logger.error(f"Chatbot1 Groq query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

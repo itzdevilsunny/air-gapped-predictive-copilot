@@ -1,0 +1,26 @@
+# ============================================================
+# ISRO Phase 1 AI Engine — Python Dependencies
+# ============================================================
+# Install: pip install -r requirements.txt
+
+# Core web framework
+fastapi==0.137.1
+uvicorn==0.49.0
+websockets==16.0
+python-multipart==0.0.32
+python-dotenv==1.0.1
+pydantic==2.13.4
+requests==2.34.2
+
+# Data processing & ML
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+joblib>=1.3.0
+
+# AI integrations (optional but recommended)
+google-generativeai>=0.8.0
+
+# InfluxDB (optional time-series storage)
+influxdb-client>=1.38.0

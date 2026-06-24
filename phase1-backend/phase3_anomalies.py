@@ -28,15 +28,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "phase1.db")
 MODEL_PATH = os.path.join(BASE_DIR, "phase3_anomaly_model.pkl")
 
+_cached_model_payload = None
+
+def load_model_cached(force_reload=False):
+    """Loads the Isolation Forest model payload from disk into memory or returns cached version."""
+    global _cached_model_payload
+    if _cached_model_payload is None or force_reload:
+        if os.path.exists(MODEL_PATH):
+            try:
+                _cached_model_payload = joblib.load(MODEL_PATH)
+                logger.info("Isolation Forest anomaly model loaded from disk into memory cache.")
+            except Exception as e:
+                logger.warning(f"Error loading saved Isolation Forest model: {e}")
+    return _cached_model_payload
+
 # Metrics to track
 METRICS = ["latency", "packet_loss", "jitter", "bandwidth", "cpu", "memory"]
 
 # Features used to fit Isolation Forest: raw metrics + their rolling averages
 def add_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    new_cols = {}
     for m in METRICS:
-        df[f"{m}_roll_mean"] = df[m].rolling(window=15, min_periods=1).mean().astype(float)
-    return df
+        new_cols[f"{m}_roll_mean"] = df[m].rolling(window=15, min_periods=1).mean().astype(float)
+    new_df = pd.DataFrame(new_cols, index=df.index)
+    return pd.concat([df, new_df], axis=1)
 
 def get_feature_names() -> List[str]:
     names = []
@@ -92,6 +108,8 @@ def train_anomaly_model(db_conn: sqlite3.Connection) -> Dict[str, Any]:
         }
         
         joblib.dump(payload, MODEL_PATH)
+        global _cached_model_payload
+        _cached_model_payload = payload
         logger.info(f"Isolation Forest trained successfully on {len(train_df)} samples.")
         
         return {
@@ -105,22 +123,14 @@ def train_anomaly_model(db_conn: sqlite3.Connection) -> Dict[str, Any]:
 
 def detect_anomalies(db_conn: sqlite3.Connection) -> Dict[str, Any]:
     """Runs point anomaly and traffic surge checks on live router data."""
-    # Ensure model exists
-    model_payload = None
-    if os.path.exists(MODEL_PATH):
-        try:
-            model_payload = joblib.load(MODEL_PATH)
-        except Exception as e:
-            logger.warning(f"Error loading Isolation Forest model: {e}")
+    # Ensure model exists via cache
+    model_payload = load_model_cached()
 
     if not model_payload:
         logger.info("No Isolation Forest model found. Training dynamically...")
         train_res = train_anomaly_model(db_conn)
         if train_res.get("status") == "success":
-            try:
-                model_payload = joblib.load(MODEL_PATH)
-            except Exception:
-                pass
+            model_payload = load_model_cached(force_reload=True)
 
     # Fetch router registry
     routers = db_conn.execute("SELECT id, name FROM router_registry").fetchall()
@@ -161,8 +171,9 @@ def detect_anomalies(db_conn: sqlite3.Connection) -> Dict[str, Any]:
         if model_payload and ML_AVAILABLE:
             try:
                 model = model_payload["model"]
-                pred = model.predict([x_vec])[0]
-                raw_score = model.score_samples([x_vec])[0]
+                input_df = pd.DataFrame([x_vec], columns=FEATURE_COLS)
+                pred = model.predict(input_df)[0]
+                raw_score = model.score_samples(input_df)[0]
                 
                 is_anomaly = bool(pred == -1)
                 # Convert raw score (negative, e.g. -0.45 to -0.7) to absolute for presentation

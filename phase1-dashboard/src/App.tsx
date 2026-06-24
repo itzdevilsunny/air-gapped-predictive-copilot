@@ -19,13 +19,13 @@ import { CopilotPanel } from './components/CopilotPanel';
 const API = 'http://127.0.0.1:8001';
 const WS_URL = 'ws://127.0.0.1:8001/ws/ph1/stream';
 
-type Tab = 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'timeseries' | 'rawdata' | 'incidents' | 'dbhealth';
+type Tab = 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'timeseries' | 'rawdata' | 'incidents' | 'dbhealth' | 'selfheal';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const params = new URLSearchParams(window.location.search);
     const urlTab = params.get('tab') as Tab;
-    return ['overview', 'predictions', 'anomalies', 'rootcause', 'copilot', 'timeseries', 'rawdata', 'incidents', 'dbhealth'].includes(urlTab) ? urlTab : 'overview';
+    return ['overview', 'predictions', 'anomalies', 'rootcause', 'copilot', 'timeseries', 'rawdata', 'incidents', 'dbhealth', 'selfheal'].includes(urlTab) ? urlTab : 'overview';
   });
 
   useEffect(() => {
@@ -76,8 +76,8 @@ export default function App() {
 
   // WebSocket live stream
   useEffect(() => {
-    let ws: WebSocket;
-    let reconnect: number;
+    let ws: WebSocket | null = null;
+    let reconnect: any = null;
 
     const connect = () => {
       ws = new WebSocket(WS_URL);
@@ -94,10 +94,20 @@ export default function App() {
         setWsConnected(false);
         reconnect = window.setTimeout(connect, 3000);
       };
-      ws.onerror = () => ws.close();
+      ws.onerror = () => {
+        if (ws) {
+          ws.close();
+        }
+      };
     };
     connect();
-    return () => { ws?.close(); clearTimeout(reconnect); };
+    return () => {
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+      clearTimeout(reconnect);
+    };
   }, []);
 
   const liveSnapshots = Object.values(liveData) as Snapshot[];
@@ -157,6 +167,127 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* Phase Navigation Tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-border)', borderRadius: 4, padding: 3, background: 'var(--c-bg2)' }}>
+            <button
+              onClick={() => setTab('overview')}
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: tab === 'overview' ? 'var(--c-primary)' : 'var(--c-muted)',
+                background: tab === 'overview' ? 'var(--c-primary)15' : 'none',
+                border: tab === 'overview' ? '1px solid var(--c-primary)30' : '1px solid transparent',
+                borderRadius: 3,
+                fontWeight: 700,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { if (tab !== 'overview') { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; } }}
+              onMouseOut={(e) => { if (tab !== 'overview') { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; } }}
+            >
+              PH 1: SIM
+            </button>
+            <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
+            <button
+              onClick={() => setTab('predictions')}
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: tab === 'predictions' ? 'var(--c-primary)' : 'var(--c-muted)',
+                background: tab === 'predictions' ? 'var(--c-primary)15' : 'none',
+                border: tab === 'predictions' ? '1px solid var(--c-primary)30' : '1px solid transparent',
+                borderRadius: 3,
+                fontWeight: 700,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { if (tab !== 'predictions') { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; } }}
+              onMouseOut={(e) => { if (tab !== 'predictions') { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; } }}
+            >
+              PH 2: ML
+            </button>
+            <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
+            <button
+              onClick={() => setTab('anomalies')}
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: tab === 'anomalies' ? 'var(--c-primary)' : 'var(--c-muted)',
+                background: tab === 'anomalies' ? 'var(--c-primary)15' : 'none',
+                border: tab === 'anomalies' ? '1px solid var(--c-primary)30' : '1px solid transparent',
+                borderRadius: 3,
+                fontWeight: 700,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { if (tab !== 'anomalies') { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; } }}
+              onMouseOut={(e) => { if (tab !== 'anomalies') { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; } }}
+            >
+              PH 3: ANOMALY
+            </button>
+            <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
+            <button
+              onClick={() => setTab('rootcause')}
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: tab === 'rootcause' ? 'var(--c-primary)' : 'var(--c-muted)',
+                background: tab === 'rootcause' ? 'var(--c-primary)15' : 'none',
+                border: tab === 'rootcause' ? '1px solid var(--c-primary)30' : '1px solid transparent',
+                borderRadius: 3,
+                fontWeight: 700,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { if (tab !== 'rootcause') { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; } }}
+              onMouseOut={(e) => { if (tab !== 'rootcause') { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; } }}
+            >
+              PH 4: RCA
+            </button>
+            <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
+            <button
+              onClick={() => setTab('copilot')}
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: tab === 'copilot' ? 'var(--c-primary)' : 'var(--c-muted)',
+                background: tab === 'copilot' ? 'var(--c-primary)15' : 'none',
+                border: tab === 'copilot' ? '1px solid var(--c-primary)30' : '1px solid transparent',
+                borderRadius: 3,
+                fontWeight: 700,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { if (tab !== 'copilot') { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; } }}
+              onMouseOut={(e) => { if (tab !== 'copilot') { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; } }}
+            >
+              PH 5: COPILOT
+            </button>
+            <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
+            <a
+              href="http://localhost:5176/"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--c-muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = 'var(--c-primary)'; e.currentTarget.style.background = 'var(--c-primary)08'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--c-muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 6: HEAL
+            </a>
+          </div>
+
           {/* Dashboard Navigation Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-border)', borderRadius: 4, padding: 3, background: 'var(--c-bg2)' }}>
             <a
@@ -258,19 +389,31 @@ export default function App() {
             ['anomalies', 'Phase 3: Anomaly Detection', <ShieldCheck size={12} />],
             ['rootcause', 'Phase 4: Root Cause Engine', <Sliders size={12} />],
             ['copilot', 'Phase 5: AI Copilot', <MessageCircle size={12} />],
+            ['selfheal', 'Phase 6: Autonomous Heal', <Zap size={12} />],
             ['timeseries', 'Time-Series Explorer', <BarChart3 size={12} />],
             ['rawdata', 'Raw Data Table', <Database size={12} />],
             ['incidents', 'Incident Log', <AlertTriangle size={12} />],
             ['dbhealth', 'DB Health', <CheckCircle2 size={12} />],
           ] as [Tab, string, React.ReactNode][]).map(([key, label, icon]) => (
-            <button
-              key={key}
-              className={`tab-btn ${tab === key ? 'active' : ''}`}
-              onClick={() => setTab(key)}
-              style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-            >
-              {icon} {label}
-            </button>
+            key === 'selfheal' ? (
+              <a
+                key={key}
+                href="http://localhost:5176/"
+                className="tab-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}
+              >
+                {icon} {label}
+              </a>
+            ) : (
+              <button
+                key={key}
+                className={`tab-btn ${tab === key ? 'active' : ''}`}
+                onClick={() => setTab(key)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                {icon} {label}
+              </button>
+            )
           ))}
         </div>
       </div>

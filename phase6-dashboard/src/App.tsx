@@ -692,19 +692,33 @@ export default function App() {
     const t = setInterval(fetchAll, 8000);
 
     // WebSocket for real-time updates
-    let ws: WebSocket;
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
     const connect = () => {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => setWsConnected(true);
-      ws.onclose = () => { setWsConnected(false); setTimeout(connect, 3000); };
-      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        setWsConnected(false);
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {
+        if (ws) {
+          ws.close();
+        }
+      };
       ws.onmessage = () => { /* triggers on any telemetry push — refetch */ fetchAll(); };
     };
     connect();
     return () => {
       clearTimeout(initTimer);
       clearInterval(t);
-      ws?.close();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
     };
   }, [fetchAll]);
 
@@ -758,18 +772,115 @@ export default function App() {
             </div>
           ))}
 
-          <div className="flex items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
-            <a href="http://localhost:5175/?tab=overview" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 1: SIM</a>
-            <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=predictions" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 2: ML</a>
-            <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=anomalies" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 3: ANOMALY</a>
-            <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=rootcause" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 4: RCA</a>
-            <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5175/?tab=copilot" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 5: COPILOT</a>
-            <span className="text-noc-border px-1">|</span>
-            <a href="http://localhost:5173/" className="bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary px-2 py-1 rounded text-[10px] font-mono font-bold transition-all no-underline">PH 6: HEAL</a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--border)', borderRadius: 4, padding: 3, background: '#04091a' }}>
+            <a
+              href="http://localhost:5175/?tab=overview"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 1: SIM
+            </a>
+            <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
+            <a
+              href="http://localhost:5175/?tab=predictions"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 2: ML
+            </a>
+            <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
+            <a
+              href="http://localhost:5175/?tab=anomalies"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 3: ANOMALY
+            </a>
+            <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
+            <a
+              href="http://localhost:5175/?tab=rootcause"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 4: RCA
+            </a>
+            <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
+            <a
+              href="http://localhost:5175/?tab=copilot"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '4px 8px',
+                borderRadius: 3,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'none'; }}
+            >
+              PH 5: COPILOT
+            </a>
+            <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
+            <a
+              href="http://localhost:5176/"
+              style={{
+                fontSize: 10,
+                fontFamily: 'var(--mono)',
+                color: 'var(--cyan)',
+                background: 'rgba(6, 182, 212, 0.15)',
+                border: '1px solid rgba(6, 182, 212, 0.3)',
+                textDecoration: 'none',
+                fontWeight: 700,
+                padding: '3px 7px',
+                borderRadius: 3,
+                boxShadow: '0 0 8px rgba(6, 182, 212, 0.2)',
+                transition: 'all 0.2s'
+              }}
+            >
+              PH 6: HEAL
+            </a>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10,

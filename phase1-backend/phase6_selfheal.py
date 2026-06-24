@@ -384,7 +384,7 @@ def get_db():
     return conn
 
 
-def generate_selfheal_report() -> Dict[str, Any]:
+def generate_selfheal_report(conn: Optional[sqlite3.Connection] = None, rc_data: Optional[Dict[str, Any]] = None, predictions: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Generates comprehensive self-healing recommendations for all routers
     by correlating Phase 2 predictions + Phase 4 root cause + live telemetry.
@@ -392,32 +392,55 @@ def generate_selfheal_report() -> Dict[str, Any]:
     import phase2_predictor
     import phase4_root_cause
 
-    conn = get_db()
+    close_conn = False
+    if conn is None:
+        conn = get_db()
+        close_conn = True
     
     # Get live root cause analysis
-    try:
-        rc_data = phase4_root_cause.analyze_root_cause(conn)
-    except Exception as e:
-        logger.error(f"Root cause fetch failed: {e}")
-        rc_data = {}
+    if rc_data is None:
+        try:
+            rc_data = phase4_root_cause.analyze_root_cause(conn)
+        except Exception as e:
+            logger.error(f"Root cause fetch failed: {e}")
+            rc_data = {}
 
     # Get AI predictions
-    try:
-        predictions = phase2_predictor.predict_all_routers(conn)
-    except Exception as e:
-        logger.error(f"Prediction fetch failed: {e}")
-        predictions = {}
+    if predictions is None:
+        try:
+            predictions = phase2_predictor.predict_all_routers(conn)
+        except Exception as e:
+            logger.error(f"Prediction fetch failed: {e}")
+            predictions = {}
 
     # Get live telemetry
-    rows = conn.execute(
-        """SELECT s.*, r.name AS router_name
-           FROM network_snapshots s
-           JOIN router_registry r ON s.router_id = r.id
-           WHERE s.id IN (SELECT MAX(id) FROM network_snapshots GROUP BY router_id)"""
-    ).fetchall()
-    conn.close()
+    routers = conn.execute("SELECT id FROM router_registry").fetchall()
+    rows = []
+    for r in routers:
+        rid = r["id"]
+        row = conn.execute(
+            """SELECT s.*, r.name AS router_name
+               FROM network_snapshots s
+               JOIN router_registry r ON s.router_id = r.id
+               WHERE s.router_id = ?
+               ORDER BY s.timestamp DESC LIMIT 1""",
+            (rid,)
+        ).fetchone()
+        if row:
+            rows.append(row)
+    if close_conn:
+        conn.close()
 
     telemetry = {dict(r)["router_id"]: dict(r) for r in rows}
+
+    # Map Phase 2 'failure_type' lowercase enum → Phase 6 playbook keys
+    FAILURE_TYPE_MAP = {
+        "congestion": "Link Congestion",
+        "overload": "Device Overload",
+        "instability": "Link Flapping",
+        "link_down": "Link Down",
+        "normal": "Normal",
+    }
 
     results = {}
     for rid, dep_info in ROUTER_DEPENDENCIES.items():
@@ -429,18 +452,21 @@ def generate_selfheal_report() -> Dict[str, Any]:
         status = rc.get("status", "NORMAL")
         confidence = rc.get("confidence_score", 0)
 
-        # Get failure type for playbook lookup
+        # Get failure type for playbook lookup (from root cause)
         failure_type = "Normal"
         if root_cause and root_cause not in ("Normal operations", "Normal operation"):
             failure_type = root_cause
 
-        # Get prediction risk
+        # Get prediction risk — Phase 2 outputs risk_score (0-100 int) and failure_type (lowercase)
         risk_score = 0
         predicted_class = "Normal"
         time_to_failure = None
         if pred:
-            risk_score = round(pred.get("failure_probability", 0) * 100, 1)
-            predicted_class = pred.get("predicted_failure_class", "Normal")
+            # Phase 2 uses 'risk_score' (0-100 integer), not 'failure_probability'
+            risk_score = float(pred.get("risk_score", 0))
+            # Phase 2 uses 'failure_type' (lowercase: 'congestion', 'overload', etc.)
+            raw_ft = pred.get("failure_type", "normal")
+            predicted_class = FAILURE_TYPE_MAP.get(raw_ft, "Normal")
             if risk_score > 30 and predicted_class != "Normal":
                 # Estimate time based on risk (higher risk = closer to failure)
                 if risk_score > 90:
@@ -511,8 +537,8 @@ def generate_selfheal_report() -> Dict[str, Any]:
             "priority": priority,
             "priority_color": priority_color,
 
-            # Prediction data
-            "risk_score": risk_score,
+            # Prediction data — risk_score is 0-100 float
+            "risk_score": round(risk_score, 1),
             "predicted_failure": predicted_class,
             "time_to_failure": time_to_failure,
 

@@ -64,6 +64,35 @@ _generator_start_time: Optional[float] = None
 _latest_snapshots: Dict[str, dict] = {}
 _ws_clients: List[WebSocket] = []
 
+# AI cache variables
+_cached_predictions: Dict[str, Any] = {}
+_cached_anomalies: Dict[str, Any] = {}
+_cached_root_cause: Dict[str, Any] = {}
+_cached_selfheal: Dict[str, Any] = {}
+
+def get_latest_snapshots(conn) -> List[sqlite3.Row]:
+    """Fetches the latest snapshot for each router using a highly optimized query.
+    Instead of scanning the entire network_snapshots table with GROUP BY,
+    we query each router individually using the indexed router_id and timestamp,
+    which is extremely fast.
+    """
+    routers = conn.execute("SELECT id FROM router_registry").fetchall()
+    latest_rows = []
+    for r in routers:
+        rid = r["id"]
+        # Use index idx_snapshots_router_ts (router_id, timestamp)
+        row = conn.execute(
+            """SELECT s.*, r.name AS router_name, r.ip_address, r.site_type
+               FROM network_snapshots s
+               JOIN router_registry r ON s.router_id = r.id
+               WHERE s.router_id = ?
+               ORDER BY s.timestamp DESC LIMIT 1""",
+            (rid,)
+        ).fetchone()
+        if row:
+            latest_rows.append(row)
+    return latest_rows
+
 
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -90,14 +119,7 @@ async def broadcast_live_data():
     while True:
         try:
             conn = get_db()
-            rows = conn.execute(
-                """SELECT s.*, r.name AS router_name, r.ip_address, r.site_type
-                   FROM network_snapshots s
-                   JOIN router_registry r ON s.router_id = r.id
-                   WHERE s.id IN (
-                       SELECT MAX(id) FROM network_snapshots GROUP BY router_id
-                   )"""
-            ).fetchall()
+            rows = get_latest_snapshots(conn)
             conn.close()
 
             snapshot = {}
@@ -124,11 +146,134 @@ async def broadcast_live_data():
         await asyncio.sleep(2.0)
 
 
+def compute_ai_analysis(db_path):
+    """Computes all predictions, anomalies, root causes, and self-healing reports
+    in a synchronous block. This function runs in a separate thread.
+    """
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        preds = phase2_predictor.predict_all_routers(conn)
+        anoms = phase3_anomalies.detect_anomalies(conn)
+        rcs = phase4_root_cause.analyze_root_cause(conn)
+        selfheals = phase6_selfheal.generate_selfheal_report(conn, rcs, preds)
+        return preds, anoms, rcs, selfheals
+    except Exception as e:
+        logger.error(f"Error inside compute_ai_analysis thread: {e}", exc_info=True)
+        raise
+    finally:
+        conn.close()
+
+
+async def run_ai_analysis_loop():
+    """Runs AI predictions, anomaly detection, root cause, and self-healing analysis
+    in a background thread pool every 4.0 seconds to update memory caches.
+    """
+    global _cached_predictions, _cached_anomalies, _cached_root_cause, _cached_selfheal
+    await asyncio.sleep(2.0)  # Wait for startup and dynamic models
+    while True:
+        try:
+            start_t = time.time()
+            
+            # Offload heavy CPU-bound model loading and inference to a thread pool!
+            preds, anoms, rcs, selfheals = await asyncio.to_thread(compute_ai_analysis, DB_PATH)
+            
+            _cached_predictions = preds
+            _cached_anomalies = anoms
+            _cached_root_cause = rcs
+            _cached_selfheal = selfheals
+            
+            elapsed = time.time() - start_t
+            logger.info(f"AI background analysis loop completed in {elapsed:.3f}s (Thread pool offloaded)")
+        except Exception as e:
+            logger.error(f"Error in background AI analysis loop: {e}", exc_info=True)
+            
+        await asyncio.sleep(4.0)
+
+
+def init_caches_fast():
+    """Initializes caches with fast default/normal states to prevent blocking on startup."""
+    global _cached_predictions, _cached_anomalies, _cached_root_cause, _cached_selfheal
+    routers = ["ISTRAC-BGL", "SDSC-SHAR", "MCF-HSN", "NOC-DEL", "NOC-MUM", "TRACK-PBL"]
+    
+    _cached_predictions = {
+        rid: {
+            "router_id": rid,
+            "router_name": rid,
+            "risk_score": 0,
+            "prediction": "Normal operation (Initializing AI)",
+            "eta_minutes": None,
+            "failure_type": "normal"
+        } for rid in routers
+    }
+    
+    _cached_anomalies = {
+        rid: {
+            "router_id": rid,
+            "router_name": rid,
+            "is_anomaly": False,
+            "anomaly_score": 0.0,
+            "explanation": "Establishing baseline patterns...",
+            "spikes": [],
+            "latest_metrics": {}
+        } for rid in routers
+    }
+    
+    _cached_root_cause = {
+        rid: {
+            "router_id": rid,
+            "router_name": rid,
+            "status": "NORMAL",
+            "root_cause": "Normal operation",
+            "confidence_score": 0.0,
+            "rule_triggered": "None",
+            "ai_attribution": "None",
+            "evidences": ["System starting up"],
+            "cli_fix": "! System starting up. No action required.",
+            "latest_metrics": {}
+        } for rid in routers
+    }
+    
+    _cached_selfheal = {
+        rid: {
+            "router_id": rid,
+            "router_name": rid,
+            "role": "MPLS Node",
+            "criticality": "MEDIUM",
+            "status": "NORMAL",
+            "priority": "P4-NORMAL",
+            "priority_color": "green",
+            "risk_score": 0,
+            "predicted_failure": "Normal",
+            "time_to_failure": None,
+            "root_cause": "Normal operation",
+            "confidence_score": 0.0,
+            "rule_triggered": "None",
+            "ai_attribution": "Normal Profile",
+            "evidences": [],
+            "latest_metrics": {},
+            "failure_type": "Normal",
+            "impact_analysis": [],
+            "mitigation_steps": ["No action required. Continue standard monitoring."],
+            "cli_fix": "! Operating normally. No CLI actions required.",
+            "automation_script": "# Healthy. No automation needed.",
+            "estimated_fix_minutes": 0,
+            "auto_applicable": False,
+            "services": [],
+            "downstream_routers": [],
+            "backup_path": "None"
+        } for rid in routers
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    init_caches_fast()
     asyncio.create_task(broadcast_live_data())
-    logger.info("Phase 1 API ready — background broadcast started.")
+    asyncio.create_task(run_ai_analysis_loop())
+    logger.info("Phase 1 API ready — background broadcast and AI analysis loops started.")
     yield
     if _generator_proc and _generator_proc.poll() is None:
         _generator_proc.terminate()
@@ -169,15 +314,7 @@ def get_routers():
 def get_live_metrics():
     """Latest single snapshot per router from SQLite."""
     conn = get_db()
-    rows = conn.execute(
-        """SELECT s.*, r.name AS router_name, r.ip_address, r.site_type
-           FROM network_snapshots s
-           JOIN router_registry r ON s.router_id = r.id
-           WHERE s.id IN (
-               SELECT MAX(id) FROM network_snapshots GROUP BY router_id
-           )
-           ORDER BY s.router_id"""
-    ).fetchall()
+    rows = get_latest_snapshots(conn)
     conn.close()
     return [dict(r) for r in rows]
 
@@ -317,8 +454,8 @@ def generator_status():
     global _generator_proc, _generator_start_time
     
     conn = get_db()
-    row_count = conn.execute("SELECT COUNT(*) FROM network_snapshots").fetchone()[0]
-    incident_count = conn.execute("SELECT COUNT(*) FROM incident_log").fetchone()[0]
+    row_count = conn.execute("SELECT MAX(id) FROM network_snapshots").fetchone()[0] or 0
+    incident_count = conn.execute("SELECT MAX(id) FROM incident_log").fetchone()[0] or 0
     latest_row = conn.execute(
         "SELECT timestamp FROM network_snapshots ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -489,14 +626,7 @@ async def ws_stream(websocket: WebSocket):
 @app.get("/api/ph2/predictions")
 def get_predictions():
     """Get failure predictions for all routers."""
-    try:
-        conn = get_db()
-        preds = phase2_predictor.predict_all_routers(conn)
-        conn.close()
-        return preds
-    except Exception as e:
-        logger.error(f"Failed to fetch predictions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return _cached_predictions
 
 @app.post("/api/ph2/train")
 def retrain_model():
@@ -559,14 +689,7 @@ def get_model_status():
 @app.get("/api/ph3/anomalies")
 def get_anomalies():
     """Get unsupervised anomalies and traffic spikes for all routers."""
-    try:
-        conn = get_db()
-        res = phase3_anomalies.detect_anomalies(conn)
-        conn.close()
-        return res
-    except Exception as e:
-        logger.error(f"Failed to fetch anomalies: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return _cached_anomalies
 
 @app.post("/api/ph3/train")
 def retrain_anomaly_model():
@@ -620,14 +743,7 @@ def get_anomaly_model_status():
 @app.get("/api/ph4/root_cause")
 def get_root_cause():
     """Get Rule + AI hybrid root cause analysis for all routers."""
-    try:
-        conn = get_db()
-        res = phase4_root_cause.analyze_root_cause(conn)
-        conn.close()
-        return res
-    except Exception as e:
-        logger.error(f"Failed to fetch root cause analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return _cached_root_cause
 
 
 
@@ -700,25 +816,28 @@ def get_knowledge_base():
 @app.get("/api/ph6/selfheal")
 def get_selfheal():
     """Get autonomous self-healing recommendations for all routers."""
-    try:
-        result = phase6_selfheal.generate_selfheal_report()
-        return result
-    except Exception as e:
-        logger.error(f"Phase 6 selfheal failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return _cached_selfheal
 
 
 @app.get("/api/ph6/topology")
 def get_topology():
     """Get network topology with live status for all nodes."""
     conn = get_db()
-    rows = conn.execute(
-        """SELECT s.router_id, s.latency, s.packet_loss, s.bandwidth, s.cpu,
-                  s.memory, s.link_status, s.failure_label, r.name, r.site_type, r.ip_address
-           FROM network_snapshots s
-           JOIN router_registry r ON s.router_id = r.id
-           WHERE s.id IN (SELECT MAX(id) FROM network_snapshots GROUP BY router_id)"""
-    ).fetchall()
+    routers = conn.execute("SELECT id FROM router_registry").fetchall()
+    rows = []
+    for r in routers:
+        rid = r["id"]
+        row = conn.execute(
+            """SELECT s.router_id, s.latency, s.packet_loss, s.bandwidth, s.cpu,
+                      s.memory, s.link_status, s.failure_label, r.name, r.site_type, r.ip_address
+               FROM network_snapshots s
+               JOIN router_registry r ON s.router_id = r.id
+               WHERE s.router_id = ?
+               ORDER BY s.timestamp DESC LIMIT 1""",
+            (rid,)
+        ).fetchone()
+        if row:
+            rows.append(row)
     conn.close()
 
     topology_meta = phase6_selfheal.ROUTER_DEPENDENCIES

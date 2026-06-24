@@ -32,6 +32,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "phase1.db")
 MODEL_PATH = os.path.join(BASE_DIR, "phase2_model.pkl")
 
+_cached_model_payload = None
+
+def load_model_cached(force_reload=False):
+    """Loads the model payload from disk into memory or returns the cached version."""
+    global _cached_model_payload
+    if _cached_model_payload is None or force_reload:
+        if os.path.exists(MODEL_PATH):
+            try:
+                _cached_model_payload = joblib.load(MODEL_PATH)
+                logger.info("XGBoost prediction model loaded from disk into memory cache.")
+            except Exception as e:
+                logger.warning(f"Error loading saved model into cache: {e}")
+    return _cached_model_payload
+
 # Fixed list of features in sorted order to prevent feature mismatch
 METRICS = ["latency", "packet_loss", "jitter", "bandwidth", "cpu", "memory"]
 WINDOWS = [5, 15, 30, 60]
@@ -65,30 +79,34 @@ def add_features_to_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
+    new_cols = {}
+    
     # Current values
     for m in METRICS:
-        df[f"{m}_curr"] = df[m].astype(float)
+        new_cols[f"{m}_curr"] = df[m].astype(float)
         
     # Rolling stats
     for w in WINDOWS:
         for m in METRICS:
             rolling = df[m].rolling(window=w, min_periods=1)
-            df[f"{m}_mean_{w}"] = rolling.mean().astype(float)
-            df[f"{m}_std_{w}"] = rolling.std().fillna(0.0).astype(float)
-            df[f"{m}_max_{w}"] = rolling.max().astype(float)
-            df[f"{m}_min_{w}"] = rolling.min().astype(float)
+            new_cols[f"{m}_mean_{w}"] = rolling.mean().astype(float)
+            new_cols[f"{m}_std_{w}"] = rolling.std().fillna(0.0).astype(float)
+            new_cols[f"{m}_max_{w}"] = rolling.max().astype(float)
+            new_cols[f"{m}_min_{w}"] = rolling.min().astype(float)
             
     # Lag & trend features
     for lag in LAGS:
         for m in METRICS:
-            df[f"{m}_lag_{lag}"] = df[m].shift(lag).astype(float)
-            # Fill NaNs with the first value of the series
+            shifted = df[m].shift(lag).astype(float)
             first_val = float(df[m].iloc[0]) if len(df) > 0 else 0.0
-            df[f"{m}_lag_{lag}"] = df[f"{m}_lag_{lag}"].fillna(first_val)
-            df[f"{m}_delta_{lag}"] = df[m].astype(float) - df[f"{m}_lag_{lag}"]
-            df[f"{m}_rate_{lag}"] = df[f"{m}_delta_{lag}"] / lag
+            shifted = shifted.fillna(first_val)
+            new_cols[f"{m}_lag_{lag}"] = shifted
+            delta = df[m].astype(float) - shifted
+            new_cols[f"{m}_delta_{lag}"] = delta
+            new_cols[f"{m}_rate_{lag}"] = delta / lag
             
-    return df
+    new_df = pd.DataFrame(new_cols, index=df.index)
+    return pd.concat([df, new_df], axis=1)
 
 def prepare_training_data(db_conn: sqlite3.Connection) -> Tuple[pd.DataFrame, np.ndarray]:
     """
@@ -193,6 +211,8 @@ def train_model(db_conn: sqlite3.Connection) -> Dict[str, Any]:
         }
         
         joblib.dump(model_payload, MODEL_PATH)
+        global _cached_model_payload
+        _cached_model_payload = model_payload
         logger.info(f"Model trained successfully. Accuracy: {acc:.2f}, samples: {len(X)}")
         
         return {
@@ -210,19 +230,14 @@ def train_model(db_conn: sqlite3.Connection) -> Dict[str, Any]:
 def predict_all_routers(db_conn: sqlite3.Connection) -> Dict[str, Any]:
     """Computes failure predictions for all routers."""
     # Ensure model is loaded or trained
-    model_payload = None
-    if os.path.exists(MODEL_PATH):
-        try:
-            model_payload = joblib.load(MODEL_PATH)
-        except Exception as e:
-            logger.warning(f"Error loading saved model: {e}")
+    model_payload = load_model_cached()
             
     if not model_payload:
         # Try to train it dynamically on startup
         logger.info("No saved model found or load failed. Attempting dynamic training...")
         train_res = train_model(db_conn)
         if train_res.get("status") == "success":
-            model_payload = joblib.load(MODEL_PATH)
+            model_payload = load_model_cached(force_reload=True)
             
     # Read router registry
     routers = db_conn.execute("SELECT id, name FROM router_registry").fetchall()
@@ -297,7 +312,7 @@ def predict_all_routers(db_conn: sqlite3.Connection) -> Dict[str, Any]:
         # Inference using trained XGBoost model
         model = model_payload["model"]
         
-        probs = model.predict_proba([x_vec])[0]
+        probs = model.predict_proba(pd.DataFrame([x_vec], columns=FEATURE_COLS))[0]
         # classes: 0 = normal, 1 = congestion, 2 = overload, 3 = instability/link_down
         
         risk_score = 1.0 - probs[0]
