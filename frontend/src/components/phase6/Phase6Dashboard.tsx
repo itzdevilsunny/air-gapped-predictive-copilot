@@ -660,7 +660,7 @@ function NodeInspector({ node, selfheal }: { node: TopoNode | null; selfheal: Se
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
-export default function Phase6Dashboard() {
+export default function Phase6Dashboard({ isInline = false }: { isInline?: boolean }) {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [selfheal, setSelfheal] = useState<Record<string, SelfHeal> | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -732,9 +732,10 @@ export default function Phase6Dashboard() {
   const selectedSelfheal = selfheal && selectedNode ? selfheal[selectedNode] ?? null : null;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: isInline ? 'calc(100vh - 82px)' : '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ─── Top Bar ─── */}
+      {!isInline && (
       <header style={{
         background: '#060c1a', borderBottom: '1px solid #1a2744',
         padding: '0 20px', height: 52, display: 'flex', alignItems: 'center',
@@ -939,6 +940,7 @@ export default function Phase6Dashboard() {
           </div>
         </div>
       </header>
+      )}
 
       {/* ─── Summary Bar ─── */}
       {selfheal && (

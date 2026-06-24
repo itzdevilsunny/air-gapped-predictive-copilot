@@ -79,14 +79,18 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6', e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleTabNavigate = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6') => {
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
     window.history.pushState({}, '', url);
     setActiveTab(tab);
     if (tab === 'overview') {
       setIsSimOpen(true);
     }
+  };
+
+  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6', e: React.MouseEvent) => {
+    e.preventDefault();
+    handleTabNavigate(tab);
   };
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -523,11 +527,11 @@ export const App: React.FC = () => {
         {/* Row 2: Main Layout */}
         {activeTab === 'ph1' ? (
           <div className="phase1-app flex-1 flex flex-col h-full min-h-[500px]">
-            <Phase1Dashboard />
+            <Phase1Dashboard isInline={true} />
           </div>
         ) : activeTab === 'ph6' ? (
           <div className="phase6-app flex-1 flex flex-col h-full min-h-[500px]">
-            <Phase6Dashboard />
+            <Phase6Dashboard isInline={true} />
           </div>
         ) : activeTab === 'copilot' ? (
           <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-noc-border rounded-xl p-4 glass-panel min-h-[500px]">

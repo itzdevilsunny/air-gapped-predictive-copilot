@@ -27,18 +27,24 @@ const BASE_FRONTEND = IS_DEV ? 'http://localhost:5173' : '';
 
 type Tab = 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'timeseries' | 'rawdata' | 'incidents' | 'dbhealth' | 'selfheal';
 
-export default function Phase1Dashboard() {
+export default function Phase1Dashboard({ isInline = false }: { isInline?: boolean }) {
   const [tab, setTab] = useState<Tab>(() => {
     const params = new URLSearchParams(window.location.search);
-    const urlTab = params.get('tab') as Tab;
+    const urlTab = (isInline ? params.get('subtab') : params.get('tab')) as Tab;
     return ['overview', 'predictions', 'anomalies', 'rootcause', 'copilot', 'timeseries', 'rawdata', 'incidents', 'dbhealth', 'selfheal'].includes(urlTab) ? urlTab : 'overview';
   });
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    url.searchParams.set('tab', tab);
+    if (isInline) {
+      url.searchParams.set('tab', 'ph1');
+      url.searchParams.set('subtab', tab);
+    } else {
+      url.searchParams.set('tab', tab);
+      url.searchParams.delete('subtab');
+    }
     window.history.pushState({}, '', url.toString());
-  }, [tab]);
+  }, [tab, isInline]);
   const [genStatus, setGenStatus] = useState<GeneratorStatus | null>(null);
   const [routers, setRouters] = useState<Router[]>([]);
   const [liveData, setLiveData] = useState<Record<string, Snapshot>>({});
@@ -118,11 +124,11 @@ export default function Phase1Dashboard() {
 
   const liveSnapshots = Object.values(liveData) as Snapshot[];
   const activeAlerts = liveSnapshots.filter(s => s.failure_label > 0);
-  const downLinks = liveSnapshots.filter(s => s.link_status === 0);
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--c-bg)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: isInline ? 'calc(100vh - 82px)' : '100vh', background: 'var(--c-bg)', display: 'flex', flexDirection: 'column' }}>
       {/* ── Header ──────────────────────────────────────────────────────── */}
+      {!isInline && (
       <header style={{
         background: '#030813',
         borderBottom: '1px solid var(--c-border)',
@@ -357,6 +363,7 @@ export default function Phase1Dashboard() {
           </span>
         </div>
       </header>
+      )}
 
       {/* ── KPI Strip ───────────────────────────────────────────────────── */}
       <div style={{

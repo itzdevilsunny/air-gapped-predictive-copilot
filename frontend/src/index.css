@@ -5,6 +5,57 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Phase 1 Color Palette */
+  --c-bg:        #020812;
+  --c-bg2:       #060f1e;
+  --c-card:      #0a1628;
+  --c-border:    #162040;
+  --c-text:      #e2e8f0;
+  --c-muted:     #64748b;
+  --c-primary:   #00d4ff;
+  --c-primary2:  #0088ff;
+  --c-success:   #10b981;
+  --c-warning:   #f59e0b;
+  --c-danger:    #f43f5e;
+  --c-purple:    #8b5cf6;
+  --c-orange:    #f97316;
+  --c-green:     #22c55e;
+
+  /* Phase 1 Gradients */
+  --grad-primary: linear-gradient(135deg, #00d4ff22, #0088ff11);
+  --grad-danger:  linear-gradient(135deg, #f43f5e22, #f43f5e08);
+  --grad-success: linear-gradient(135deg, #10b98122, #10b98108);
+  --grad-purple:  linear-gradient(135deg, #8b5cf622, #8b5cf608);
+
+  /* Phase 1 Typography */
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Orbitron', 'Inter', sans-serif;
+
+  /* Phase 1 Shadows/Glow */
+  --glow-primary: 0 0 20px #00d4ff30;
+  --glow-danger:  0 0 20px #f43f5e30;
+  --glow-success: 0 0 20px #10b98130;
+
+  /* Phase 6 Color Palette */
+  --bg: #030813;
+  --bg2: #070d1e;
+  --card: #0a1124;
+  --border: #1a2744;
+  --text: #e8edf8;
+  --muted: #4a5a7a;
+  --primary: #3b82f6;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --purple: #8b5cf6;
+  --cyan: #06b6d4;
+  --orange: #f97316;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', sans-serif;
+}
+
 @layer base {
   body {
     @apply bg-noc-bg text-noc-text antialiased;
@@ -101,38 +152,6 @@
    Phase 1 Scoped Styles
    ────────────────────────────────────────────────────────────────── */
 .phase1-app {
-  /* Color Palette */
-  --c-bg:        #020812;
-  --c-bg2:       #060f1e;
-  --c-card:      #0a1628;
-  --c-border:    #162040;
-  --c-text:      #e2e8f0;
-  --c-muted:     #64748b;
-  --c-primary:   #00d4ff;
-  --c-primary2:  #0088ff;
-  --c-success:   #10b981;
-  --c-warning:   #f59e0b;
-  --c-danger:    #f43f5e;
-  --c-purple:    #8b5cf6;
-  --c-orange:    #f97316;
-  --c-green:     #22c55e;
-
-  /* Gradients */
-  --grad-primary: linear-gradient(135deg, #00d4ff22, #0088ff11);
-  --grad-danger:  linear-gradient(135deg, #f43f5e22, #f43f5e08);
-  --grad-success: linear-gradient(135deg, #10b98122, #10b98108);
-  --grad-purple:  linear-gradient(135deg, #8b5cf622, #8b5cf608);
-
-  /* Typography */
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Orbitron', 'Inter', sans-serif;
-
-  /* Shadows/Glow */
-  --glow-primary: 0 0 20px #00d4ff30;
-  --glow-danger:  0 0 20px #f43f5e30;
-  --glow-success: 0 0 20px #10b98130;
-
   background: var(--c-bg);
   color: var(--c-text);
   font-family: var(--font-sans);
@@ -382,22 +401,6 @@
    Phase 6 Scoped Styles
    ────────────────────────────────────────────────────────────────── */
 .phase6-app {
-  --bg: #030813;
-  --bg2: #070d1e;
-  --card: #0a1124;
-  --border: #1a2744;
-  --text: #e8edf8;
-  --muted: #4a5a7a;
-  --primary: #3b82f6;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --purple: #8b5cf6;
-  --cyan: #06b6d4;
-  --orange: #f97316;
-  --mono: 'JetBrains Mono', monospace;
-  --sans: 'Inter', sans-serif;
-
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
