@@ -107,7 +107,7 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
             const sourceHealth = sourceState?.telemetry.link_status === 0 || sourceState?.analysis.failure_risk > 80 ? 'danger' : sourceState?.analysis.failure_risk > 40 || sourceState?.analysis.is_anomaly ? 'warning' : 'healthy';
             const targetHealth = targetState?.telemetry.link_status === 0 || targetState?.analysis.failure_risk > 80 ? 'danger' : targetState?.analysis.failure_risk > 40 || targetState?.analysis.is_anomaly ? 'warning' : 'healthy';
 
-            let linkColor = 'stroke-noc-border/60';
+            let linkColor = 'stroke-noc-primary/20';
             let flowColor = '#38bdf8';
             let isDown = false;
 
@@ -120,8 +120,6 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
             } else if (sourceHealth === 'warning' || targetHealth === 'warning') {
               linkColor = 'stroke-noc-warning/40';
               flowColor = '#f59e0b';
-            } else {
-              linkColor = 'stroke-noc-primary/20';
             }
 
             const x1 = `${sourceNode.x}%`;
@@ -179,25 +177,32 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
           const state = telemetryData[node.id];
           const isSelected = selectedRouterId === node.id;
           
-          if (!state) return null;
-
-          const telemetry = state.telemetry;
-          const analysis = state.analysis;
+          const telemetry = state?.telemetry || { link_status: 1, cpu: 0, latency: 0, packet_loss: 0 };
+          const analysis = state?.analysis || { failure_risk: 0, is_anomaly: false, anomaly_score: 0 };
 
           // Determine health status
           const isLinkDown = telemetry.link_status === 0;
-          const isCritical = analysis.failure_risk > 70.0 || isLinkDown;
-          const isWarning = analysis.failure_risk > 35.0 || analysis.is_anomaly;
+          const isCritical = state && (analysis.failure_risk > 70.0 || isLinkDown);
+          const isWarning = state && (analysis.failure_risk > 35.0 || analysis.is_anomaly);
 
           let glowGradient = 'url(#glow-healthy)';
           let pingColor = 'bg-noc-success';
+          let borderStyleClass: string;
 
-          if (isCritical) {
+          if (!state) {
+            glowGradient = 'none';
+            pingColor = 'bg-noc-muted';
+            borderStyleClass = 'border-noc-border/40 opacity-60';
+          } else if (isCritical) {
             glowGradient = 'url(#glow-danger)';
             pingColor = 'bg-noc-danger';
+            borderStyleClass = 'border-noc-danger/80 ring-1 ring-noc-danger/20 hover:scale-105 shadow-glow-danger';
           } else if (isWarning) {
             glowGradient = 'url(#glow-alert)';
             pingColor = 'bg-noc-warning';
+            borderStyleClass = 'border-noc-warning/80 ring-1 ring-noc-warning/20 hover:scale-105 shadow-glow-warning';
+          } else {
+            borderStyleClass = 'border-noc-border hover:border-noc-primary/80 hover:scale-105';
           }
 
           return (
@@ -209,32 +214,32 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
               onClick={() => onSelectRouter(node.id)}
             >
               {/* Outer Glow Halo */}
-              <div
-                className={`absolute w-16 h-16 -left-8 -top-8 rounded-full pointer-events-none transition-transform duration-500 scale-75 group-hover:scale-100 ${
-                  isSelected ? 'scale-110 opacity-100' : 'opacity-40'
-                }`}
-                style={{ background: glowGradient }}
-              />
+              {glowGradient !== 'none' && (
+                <div
+                  className={`absolute w-16 h-16 -left-8 -top-8 rounded-full pointer-events-none transition-transform duration-500 scale-75 group-hover:scale-100 ${
+                    isSelected ? 'scale-110 opacity-100' : 'opacity-40'
+                  }`}
+                  style={{ background: glowGradient }}
+                />
+              )}
 
               {/* Status Ring & Core */}
               <div
                 className={`relative w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-300 bg-noc-bg/90 shadow-md ${
                   isSelected 
                     ? 'border-noc-primary ring-2 ring-noc-primary/40 scale-110 shadow-glow-cyan' 
-                    : isCritical
-                      ? 'border-noc-danger/80 ring-1 ring-noc-danger/20 hover:scale-105 shadow-glow-danger'
-                      : isWarning
-                        ? 'border-noc-warning/80 ring-1 ring-noc-warning/20 hover:scale-105 shadow-glow-warning'
-                        : 'border-noc-border hover:border-noc-primary/80 hover:scale-105'
+                    : borderStyleClass
                 }`}
               >
                 {/* Ping animation */}
-                {(isCritical || isWarning) && (
+                {state && (isCritical || isWarning) && (
                   <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping ${pingColor}`} style={{ animationDuration: isCritical ? '1s' : '2s' }} />
                 )}
 
                 {/* Node icon based on failure */}
-                {isLinkDown ? (
+                {!state ? (
+                  <div className="w-1.5 h-1.5 rounded-full bg-noc-muted/60" />
+                ) : isLinkDown ? (
                   <ShieldAlert className="w-4 h-4 text-noc-danger animate-bounce" />
                 ) : isCritical ? (
                   <AlertTriangle className="w-4 h-4 text-noc-danger" />
@@ -250,18 +255,26 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
                 className={`absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-mono border glass-panel transition-all duration-200 ${
                   isSelected
                     ? 'text-noc-primary border-noc-primary bg-noc-card'
-                    : isCritical
-                      ? 'text-noc-danger border-noc-danger bg-noc-card/90'
-                      : isWarning
-                        ? 'text-noc-warning border-noc-warning bg-noc-card/90'
-                        : 'text-noc-text/80 border-noc-border bg-noc-card/70 group-hover:text-noc-primary group-hover:border-noc-primary'
+                    : !state
+                      ? 'text-noc-muted border-noc-border/30 bg-noc-card/40 opacity-60'
+                      : isCritical
+                        ? 'text-noc-danger border-noc-danger bg-noc-card/90'
+                        : isWarning
+                          ? 'text-noc-warning border-noc-warning bg-noc-card/90'
+                          : 'text-noc-text/80 border-noc-border bg-noc-card/70 group-hover:text-noc-primary group-hover:border-noc-primary'
                 }`}
               >
                 <div className="font-semibold">{node.name}</div>
                 <div className="flex gap-1.5 items-center mt-0.5 opacity-80 text-[8px]">
-                  <span>R: {analysis.failure_risk}%</span>
-                  <span>•</span>
-                  <span>CPU: {telemetry.cpu}%</span>
+                  {!state ? (
+                    <span>OFFLINE</span>
+                  ) : (
+                    <>
+                      <span>R: {analysis.failure_risk}%</span>
+                      <span>•</span>
+                      <span>CPU: {telemetry.cpu}%</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
