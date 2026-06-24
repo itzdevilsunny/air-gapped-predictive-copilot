@@ -409,6 +409,23 @@ export const App: React.FC = () => {
             </button>
           </div>
 
+          {/* Direct Dashboard Links */}
+          <div className="flex items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
+            <a
+              href={import.meta.env.DEV ? "http://localhost:5175/" : "/ph1/"}
+              className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-noc-primary hover:bg-noc-primary/20 text-center uppercase"
+            >
+              PH 1-5 ENGINE ↗
+            </a>
+            <span className="text-noc-border px-1">|</span>
+            <a
+              href={import.meta.env.DEV ? "http://localhost:5176/" : "/ph6/"}
+              className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-noc-primary hover:bg-noc-primary/20 text-center uppercase"
+            >
+              PH 6 HEAL ↗
+            </a>
+          </div>
+
           {/* Trigger Failure Injection Deck */}
           <button
             id="btn-trigger-deck"

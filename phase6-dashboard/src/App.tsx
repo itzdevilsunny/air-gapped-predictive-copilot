@@ -8,8 +8,14 @@ import {
 
 import './index.css';
 
-const API = 'http://127.0.0.1:8001';
-const WS_URL = 'ws://127.0.0.1:8001/ws/ph1/stream';
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8001/ws/ph1/stream';
+
+const IS_DEV = import.meta.env.DEV;
+const BASE_PH1 = IS_DEV ? 'http://localhost:5175' : '/ph1';
+const BASE_PH6 = IS_DEV ? 'http://localhost:5176' : '/ph6';
+const BASE_FRONTEND = IS_DEV ? 'http://localhost:5173' : '';
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface TopoNode {
@@ -774,7 +780,7 @@ export default function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--border)', borderRadius: 4, padding: 3, background: '#04091a' }}>
             <a
-              href="http://localhost:5175/?tab=overview"
+              href={`${BASE_PH1}/?tab=overview`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -792,7 +798,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
             <a
-              href="http://localhost:5175/?tab=predictions"
+              href={`${BASE_PH1}/?tab=predictions`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -810,7 +816,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
             <a
-              href="http://localhost:5175/?tab=anomalies"
+              href={`${BASE_PH1}/?tab=anomalies`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -828,7 +834,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
             <a
-              href="http://localhost:5175/?tab=rootcause"
+              href={`${BASE_PH1}/?tab=rootcause`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -846,7 +852,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
             <a
-              href="http://localhost:5175/?tab=copilot"
+              href={`${BASE_PH1}/?tab=copilot`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -864,7 +870,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--border)', fontSize: 10, fontFamily: 'var(--mono)' }}>|</span>
             <a
-              href="http://localhost:5176/"
+              href={`${BASE_PH6}/`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--mono)',
@@ -896,7 +902,7 @@ export default function App() {
           {/* Dashboard Navigation Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #1a2744', borderRadius: 4, padding: 3, background: '#04091a' }}>
             <a
-              href="http://localhost:5175"
+              href={BASE_PH1}
               style={{
                 fontSize: 9,
                 fontFamily: 'var(--mono)',
@@ -914,7 +920,7 @@ export default function App() {
             </a>
             <span style={{ color: '#1a2744', fontSize: 9 }}>|</span>
             <a
-              href="http://localhost:5173"
+              href={`${BASE_FRONTEND}/`}
               style={{
                 fontSize: 9,
                 fontFamily: 'var(--mono)',

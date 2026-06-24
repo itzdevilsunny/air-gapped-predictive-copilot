@@ -1,12 +1,28 @@
 {
-  "experimentalServices": {
-    "frontend": {
-      "entrypoint": "frontend",
-      "routePrefix": "/"
+  "version": 2,
+  "buildCommand": "node build.js",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "echo 'Install handled by build.js'",
+  "framework": null,
+  "rewrites": [
+    { "source": "/ph1/:path*", "destination": "/ph1/:path*" },
+    { "source": "/ph6/:path*", "destination": "/ph6/:path*" },
+    { "source": "/ph1", "destination": "/ph1/index.html" },
+    { "source": "/ph6", "destination": "/ph6/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
     },
-    "backend": {
-      "entrypoint": "backend/main.py",
-      "routePrefix": "/api"
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
     }
-  }
+  ]
 }

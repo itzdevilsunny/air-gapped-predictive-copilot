@@ -1,0 +1,12 @@
+{
+  "name": "isro-predictive-noc-copilot",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "npm run build:ph1 && npm run build:ph6 && npm run build:frontend",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:ph1": "cd phase1-dashboard && npm install && npm run build",
+    "build:ph6": "cd phase6-dashboard && npm install && npm run build",
+    "install:all": "cd frontend && npm install && cd ../phase1-dashboard && npm install && cd ../phase6-dashboard && npm install"
+  }
+}

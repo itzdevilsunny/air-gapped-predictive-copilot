@@ -16,8 +16,14 @@ import { AnomalyPanel } from './components/AnomalyPanel';
 import { RootCausePanel } from './components/RootCausePanel';
 import { CopilotPanel } from './components/CopilotPanel';
 
-const API = 'http://127.0.0.1:8001';
-const WS_URL = 'ws://127.0.0.1:8001/ws/ph1/stream';
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8001/ws/ph1/stream';
+
+const IS_DEV = import.meta.env.DEV;
+const BASE_PH1 = IS_DEV ? 'http://localhost:5175' : '/ph1';
+const BASE_PH6 = IS_DEV ? 'http://localhost:5176' : '/ph6';
+const BASE_FRONTEND = IS_DEV ? 'http://localhost:5173' : '';
+
 
 type Tab = 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'timeseries' | 'rawdata' | 'incidents' | 'dbhealth' | 'selfheal';
 
@@ -270,7 +276,7 @@ export default function App() {
             </button>
             <span style={{ color: 'var(--c-border)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>|</span>
             <a
-              href="http://localhost:5176/"
+              href={`${BASE_PH6}/`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--font-mono)',
@@ -291,7 +297,7 @@ export default function App() {
           {/* Dashboard Navigation Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-border)', borderRadius: 4, padding: 3, background: 'var(--c-bg2)' }}>
             <a
-              href="http://localhost:5173/"
+              href={`${BASE_FRONTEND}/`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--font-mono)',
@@ -309,7 +315,7 @@ export default function App() {
             </a>
             <span style={{ color: 'var(--c-border)', fontSize: 10 }}>|</span>
             <a
-              href="http://localhost:5176/"
+              href={`${BASE_PH6}/`}
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--font-mono)',
@@ -398,7 +404,7 @@ export default function App() {
             key === 'selfheal' ? (
               <a
                 key={key}
-                href="http://localhost:5176/"
+                href={`${BASE_PH6}/`}
                 className="tab-btn"
                 style={{ display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}
               >
