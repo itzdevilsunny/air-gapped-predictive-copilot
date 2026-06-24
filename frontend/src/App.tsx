@@ -9,6 +9,8 @@ import { LandingPage } from './components/LandingPage';
 import { Chatbot1 } from './components/Chatbot1';
 import { SatelliteMonitor } from './components/SatelliteMonitor';
 import type { SatelliteTelemetry } from './components/SatelliteMonitor';
+import Phase1Dashboard from './components/phase1/Phase1Dashboard';
+import Phase6Dashboard from './components/phase6/Phase6Dashboard';
 import { 
   Radio, 
   Wifi, 
@@ -45,7 +47,7 @@ export const App: React.FC = () => {
   const [satelliteData, setSatelliteData] = useState<SatelliteTelemetry | null>(null);
 
   // Tab/Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal'>(() => {
+  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam === 'overview') return 'overview';
@@ -54,6 +56,8 @@ export const App: React.FC = () => {
     if (tabParam === 'rootcause') return 'rootcause';
     if (tabParam === 'copilot') return 'copilot';
     if (tabParam === 'selfheal' || tabParam === 'heal') return 'selfheal';
+    if (tabParam === 'ph1') return 'ph1';
+    if (tabParam === 'ph6') return 'ph6';
     return 'all';
   });
 
@@ -67,13 +71,15 @@ export const App: React.FC = () => {
       else if (tabParam === 'rootcause') setActiveTab('rootcause');
       else if (tabParam === 'copilot') setActiveTab('copilot');
       else if (tabParam === 'selfheal' || tabParam === 'heal') setActiveTab('selfheal');
+      else if (tabParam === 'ph1') setActiveTab('ph1');
+      else if (tabParam === 'ph6') setActiveTab('ph6');
       else setActiveTab('all');
     };
     window.addEventListener('popstate', handleLocationChange);
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal', e: React.MouseEvent) => {
+  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6', e: React.MouseEvent) => {
     e.preventDefault();
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
     window.history.pushState({}, '', url);
@@ -411,19 +417,27 @@ export const App: React.FC = () => {
 
           {/* Direct Dashboard Links */}
           <div className="flex items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
-            <a
-              href={import.meta.env.DEV ? "http://localhost:5175/" : "/ph1/"}
-              className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-noc-primary hover:bg-noc-primary/20 text-center uppercase"
+            <button
+              onClick={(e) => handleTabClick('ph1', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+                activeTab === 'ph1'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'hover:bg-noc-primary/20 text-noc-primary'
+              }`}
             >
-              PH 1-5 ENGINE ↗
-            </a>
+              PH 1-5 ENGINE
+            </button>
             <span className="text-noc-border px-1">|</span>
-            <a
-              href={import.meta.env.DEV ? "http://localhost:5176/" : "/ph6/"}
-              className="px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-noc-primary hover:bg-noc-primary/20 text-center uppercase"
+            <button
+              onClick={(e) => handleTabClick('ph6', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+                activeTab === 'ph6'
+                  ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
+                  : 'hover:bg-noc-primary/20 text-noc-primary'
+              }`}
             >
-              PH 6 HEAL ↗
-            </a>
+              PH 6 HEAL
+            </button>
           </div>
 
           {/* Trigger Failure Injection Deck */}
@@ -451,10 +465,10 @@ export const App: React.FC = () => {
 
       {/* Main Grid View Area */}
       <main className={`flex-1 max-w-[1600px] w-full mx-auto p-4 flex flex-col gap-4 overflow-hidden transition-all duration-300 ${
-        activeTab === 'copilot' ? 'mb-[50px]' : isChatExpanded ? 'mb-[390px]' : 'mb-[50px]'
+        (activeTab === 'ph1' || activeTab === 'ph6') ? 'mb-0 p-0 max-w-none' : activeTab === 'copilot' ? 'mb-[50px]' : isChatExpanded ? 'mb-[390px]' : 'mb-[50px]'
       }`}>
         {/* Row 1: KPI Statistics Widgets */}
-        {activeTab !== 'copilot' && (
+        {activeTab !== 'copilot' && activeTab !== 'ph1' && activeTab !== 'ph6' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {/* KPI 1: Latency */}
             <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
@@ -507,7 +521,15 @@ export const App: React.FC = () => {
         )}
 
         {/* Row 2: Main Layout */}
-        {activeTab === 'copilot' ? (
+        {activeTab === 'ph1' ? (
+          <div className="phase1-app flex-1 flex flex-col h-full min-h-[500px]">
+            <Phase1Dashboard />
+          </div>
+        ) : activeTab === 'ph6' ? (
+          <div className="phase6-app flex-1 flex flex-col h-full min-h-[500px]">
+            <Phase6Dashboard />
+          </div>
+        ) : activeTab === 'copilot' ? (
           <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-noc-border rounded-xl p-4 glass-panel min-h-[500px]">
             <h3 className="text-xs font-mono font-bold text-noc-primary mb-3 tracking-widest uppercase">
               PHASE 5: AIR-GAPPED NLP COPILOT COMMAND INTERFACE
@@ -598,7 +620,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* Slide-Up AI Operations Chat Terminal */}
-      {activeTab !== 'copilot' && (
+      {activeTab !== 'copilot' && activeTab !== 'ph1' && activeTab !== 'ph6' && (
         <div 
           className={`fixed bottom-0 left-0 right-0 z-40 transition-all duration-300 ${
             isChatExpanded ? 'h-[370px]' : 'h-[44px]'

@@ -80,23 +80,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLogin }) => {
             PHASE 5 (COPILOT)
           </a>
           <a
-            href="?tab=selfheal"
+            href="?tab=ph6"
             className="text-[11px] text-noc-muted hover:text-noc-primary font-mono transition-colors"
           >
             PHASE 6 (SELF-HEAL)
           </a>
           <span className="text-noc-border text-xs px-1">|</span>
           <a
-            href={import.meta.env.DEV ? "http://localhost:5175/" : "/ph1/"}
+            href="?tab=ph1"
             className="text-[11px] text-noc-primary hover:text-noc-primary/80 font-mono font-bold transition-colors bg-noc-primary/10 px-2.5 py-1 rounded border border-noc-primary/30"
           >
-            PH 1-5 ENGINE ↗
+            PH 1-5 ENGINE
           </a>
           <a
-            href={import.meta.env.DEV ? "http://localhost:5176/" : "/ph6/"}
+            href="?tab=ph6"
             className="text-[11px] text-noc-primary hover:text-noc-primary/80 font-mono font-bold transition-colors bg-noc-primary/10 px-2.5 py-1 rounded border border-noc-primary/30"
           >
-            PH 6 HEAL ↗
+            PH 6 HEAL
           </a>
         </div>
       </header>

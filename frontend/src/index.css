@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@700;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@500;700;900&display=swap');
 
 @tailwind base;
@@ -61,4 +62,461 @@
   background-image: 
     linear-gradient(to right, rgba(27, 37, 75, 0.15) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(27, 37, 75, 0.15) 1px, transparent 1px);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Global Keyframes
+   ────────────────────────────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+@keyframes scan-line {
+  0% { top: -2%; }
+  100% { top: 102%; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+
+/* ──────────────────────────────────────────────────────────────────
+   Phase 1 Scoped Styles
+   ────────────────────────────────────────────────────────────────── */
+.phase1-app {
+  /* Color Palette */
+  --c-bg:        #020812;
+  --c-bg2:       #060f1e;
+  --c-card:      #0a1628;
+  --c-border:    #162040;
+  --c-text:      #e2e8f0;
+  --c-muted:     #64748b;
+  --c-primary:   #00d4ff;
+  --c-primary2:  #0088ff;
+  --c-success:   #10b981;
+  --c-warning:   #f59e0b;
+  --c-danger:    #f43f5e;
+  --c-purple:    #8b5cf6;
+  --c-orange:    #f97316;
+  --c-green:     #22c55e;
+
+  /* Gradients */
+  --grad-primary: linear-gradient(135deg, #00d4ff22, #0088ff11);
+  --grad-danger:  linear-gradient(135deg, #f43f5e22, #f43f5e08);
+  --grad-success: linear-gradient(135deg, #10b98122, #10b98108);
+  --grad-purple:  linear-gradient(135deg, #8b5cf622, #8b5cf608);
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Orbitron', 'Inter', sans-serif;
+
+  /* Shadows/Glow */
+  --glow-primary: 0 0 20px #00d4ff30;
+  --glow-danger:  0 0 20px #f43f5e30;
+  --glow-success: 0 0 20px #10b98130;
+
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.phase1-app * {
+  box-sizing: border-box;
+}
+
+/* ── Scrollbar ── */
+.phase1-app ::-webkit-scrollbar { width: 5px; height: 5px; }
+.phase1-app ::-webkit-scrollbar-track { background: var(--c-bg); }
+.phase1-app ::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 3px; }
+.phase1-app ::-webkit-scrollbar-thumb:hover { background: var(--c-primary2); }
+
+/* ── Glass Card ── */
+.phase1-app .glass-card {
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+}
+
+.phase1-app .glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--c-primary)30, transparent);
+}
+
+/* ── Section Label ── */
+.phase1-app .section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+
+/* ── Status Pill ── */
+.phase1-app .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.phase1-app .pill-success { background: var(--c-success)1a; border: 1px solid var(--c-success)50; color: var(--c-success); }
+.phase1-app .pill-danger  { background: var(--c-danger)1a;  border: 1px solid var(--c-danger)50;  color: var(--c-danger);  }
+.phase1-app .pill-warning { background: var(--c-warning)1a; border: 1px solid var(--c-warning)50; color: var(--c-warning); }
+.phase1-app .pill-primary { background: var(--c-primary)1a; border: 1px solid var(--c-primary)50; color: var(--c-primary); }
+.phase1-app .pill-muted   { background: var(--c-muted)1a;   border: 1px solid var(--c-muted)30;   color: var(--c-muted);   }
+
+/* ── Metric Value Big ── */
+.phase1-app .metric-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.phase1-app .metric-value.sm { font-size: 18px; }
+.phase1-app .metric-value.xs { font-size: 14px; }
+
+/* ── Progress Bar ── */
+.phase1-app .progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.phase1-app .progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+/* ── Button ── */
+.phase1-app .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+}
+
+.phase1-app .btn-primary {
+  background: var(--c-primary)20;
+  border-color: var(--c-primary)50;
+  color: var(--c-primary);
+}
+.phase1-app .btn-primary:hover { background: var(--c-primary)35; box-shadow: var(--glow-primary); }
+
+.phase1-app .btn-danger {
+  background: var(--c-danger)20;
+  border-color: var(--c-danger)50;
+  color: var(--c-danger);
+}
+.phase1-app .btn-danger:hover { background: var(--c-danger)35; box-shadow: var(--glow-danger); }
+
+.phase1-app .btn-success {
+  background: var(--c-success)20;
+  border-color: var(--c-success)50;
+  color: var(--c-success);
+}
+.phase1-app .btn-success:hover { background: var(--c-success)35; box-shadow: var(--glow-success); }
+
+.phase1-app .btn-warning {
+  background: var(--c-warning)20;
+  border-color: var(--c-warning)50;
+  color: var(--c-warning);
+}
+.phase1-app .btn-warning:hover { background: var(--c-warning)35; }
+
+.phase1-app .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Tab ── */
+.phase1-app .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--c-border); padding-bottom: 0; }
+.phase1-app .tab-btn {
+  padding: 8px 16px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  color: var(--c-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.phase1-app .tab-btn:hover { color: var(--c-text); }
+.phase1-app .tab-btn.active { color: var(--c-primary); border-bottom-color: var(--c-primary); }
+
+/* ── Table ── */
+.phase1-app .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.phase1-app .data-table th {
+  padding: 8px 10px;
+  background: var(--c-bg2);
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
+.phase1-app .data-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--c-border)80;
+  color: var(--c-text);
+  vertical-align: middle;
+}
+
+.phase1-app .data-table tr:hover td { background: var(--c-bg2); }
+.phase1-app .data-table tr:last-child td { border-bottom: none; }
+
+/* ── Animations ── */
+.phase1-app .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+.phase1-app .animate-spin { animation: spin 1s linear infinite; }
+.phase1-app .animate-fade-in { animation: fade-in 0.4s ease forwards; }
+.phase1-app .animate-blink { animation: blink 1s step-end infinite; }
+
+/* ── Grid Helpers ── */
+.phase1-app .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.phase1-app .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.phase1-app .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.phase1-app .flex-center { display: flex; align-items: center; justify-content: center; }
+.phase1-app .flex-between { display: flex; align-items: center; justify-content: space-between; }
+.phase1-app .flex-gap-2 { display: flex; align-items: center; gap: 8px; }
+.phase1-app .flex-col { display: flex; flex-direction: column; }
+
+/* ── Failure label colors ── */
+.phase1-app .label-normal    { color: var(--c-success); }
+.phase1-app .label-congestion { color: var(--c-warning); }
+.phase1-app .label-overload  { color: var(--c-orange); }
+.phase1-app .label-instability { color: var(--c-danger); }
+
+/* ── Site type badges ── */
+.phase1-app .site-istrac { color: #00d4ff; }
+.phase1-app .site-sdsc   { color: #f59e0b; }
+.phase1-app .site-mcf    { color: #8b5cf6; }
+.phase1-app .site-noc    { color: #f97316; }
+.phase1-app .site-track  { color: #10b981; }
+
+/* ── Code terminal ── */
+.phase1-app .terminal {
+  background: #050d1a;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-success);
+  overflow-y: auto;
+  line-height: 1.8;
+}
+
+.phase1-app .terminal .line-ts { color: var(--c-muted); margin-right: 8px; }
+.phase1-app .terminal .line-err { color: var(--c-danger); }
+.phase1-app .terminal .line-warn { color: var(--c-warning); }
+.phase1-app .terminal .line-info { color: var(--c-primary); }
+
+/* ── Recharts overrides ── */
+.phase1-app .recharts-cartesian-grid line { stroke: #162040 !important; }
+.phase1-app .recharts-tooltip-wrapper { z-index: 100; }
+
+
+/* ──────────────────────────────────────────────────────────────────
+   Phase 6 Scoped Styles
+   ────────────────────────────────────────────────────────────────── */
+.phase6-app {
+  --bg: #030813;
+  --bg2: #070d1e;
+  --card: #0a1124;
+  --border: #1a2744;
+  --text: #e8edf8;
+  --muted: #4a5a7a;
+  --primary: #3b82f6;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --purple: #8b5cf6;
+  --cyan: #06b6d4;
+  --orange: #f97316;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', sans-serif;
+
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.phase6-app *, .phase6-app *::before, .phase6-app *::after { box-sizing: border-box; }
+
+/* Scrollbars */
+.phase6-app ::-webkit-scrollbar { width: 4px; height: 4px; }
+.phase6-app ::-webkit-scrollbar-track { background: var(--bg); }
+.phase6-app ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+
+/* Spin animation for loading indicators */
+.phase6-app .spin { animation: spin 1s linear infinite; display: inline-block; }
+
+/* Pulse for live indicators */
+.phase6-app .pulse { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* Slide in from bottom */
+.phase6-app .slide-up { animation: slide-up 0.25s ease-out; }
+
+/* Status glow effects */
+.phase6-app .glow-green { box-shadow: 0 0 10px #10b98125; }
+.phase6-app .glow-red { box-shadow: 0 0 12px #ef444435; }
+.phase6-app .glow-yellow { box-shadow: 0 0 10px #f59e0b25; }
+.phase6-app .glow-blue { box-shadow: 0 0 10px #3b82f625; }
+
+/* Node status colors */
+.phase6-app .status-green { color: var(--success); }
+.phase6-app .status-yellow { color: var(--warning); }
+.phase6-app .status-red { color: var(--danger); }
+
+/* Risk bar */
+.phase6-app .risk-bar-track {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.phase6-app .risk-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+/* Panel base */
+.phase6-app .panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.phase6-app .panel-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #060c1a;
+}
+.phase6-app .panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.phase6-app .panel-body { padding: 14px; }
+
+/* Badge */
+.phase6-app .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+.phase6-app .badge-red { background: #ef444415; color: #f87171; border: 1px solid #ef444430; }
+.phase6-app .badge-yellow { background: #f59e0b15; color: #fbbf24; border: 1px solid #f59e0b30; }
+.phase6-app .badge-green { background: #10b98115; color: #34d399; border: 1px solid #10b98130; }
+.phase6-app .badge-blue { background: #3b82f615; color: #60a5fa; border: 1px solid #3b82f630; }
+.phase6-app .badge-purple { background: #8b5cf615; color: #a78bfa; border: 1px solid #8b5cf630; }
+
+/* Chat */
+.phase6-app .chat-bubble-user {
+  background: #1e3a5f;
+  border: 1px solid #2563eb30;
+  border-radius: 12px 4px 12px 12px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 75%;
+  align-self: flex-end;
+}
+.phase6-app .chat-bubble-ai {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 4px 12px 12px 12px;
+  padding: 12px 14px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.7;
+  width: 100%;
+}
+
+/* Timeline dot line */
+.phase6-app .timeline-line {
+  width: 2px;
+  background: linear-gradient(to bottom, var(--primary), transparent);
+  flex-shrink: 0;
+  margin-top: 4px;
 }
