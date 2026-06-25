@@ -26,6 +26,81 @@ import {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || window.location.origin;
 const WS_URL = import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/telemetry`;
 
+const MOCK_ROUTER_INFOS = [
+  { id: 'NOC-DEL', name: 'NOC Delhi', role: 'Gateway Core', baseLatency: 12, baseCpu: 20 },
+  { id: 'NOC-MUM', name: 'NOC Mumbai', role: 'Transit Center', baseLatency: 18, baseCpu: 25 },
+  { id: 'MCF-HSN', name: 'MCF Hassan', role: 'Control Node', baseLatency: 28, baseCpu: 15 },
+  { id: 'ISTRAC-BGL', name: 'ISTRAC Bangalore', role: 'Primary Telemetry Hub', baseLatency: 8, baseCpu: 30 },
+  { id: 'SDSC-SHAR', name: 'SDSC Sriharikota', role: 'Launch Control Sync', baseLatency: 15, baseCpu: 40 },
+  { id: 'TRACK-PBL', name: 'TRACK Port Blair', role: 'Deep Space Downlink', baseLatency: 45, baseCpu: 10 },
+];
+
+const generateInitialMockState = (): Record<string, RouterState> => {
+  const data: Record<string, RouterState> = {};
+  const nowStr = new Date().toISOString();
+  MOCK_ROUTER_INFOS.forEach(r => {
+    data[r.id] = {
+      telemetry: {
+        timestamp: nowStr,
+        router_id: r.id,
+        router_name: r.name,
+        latency: r.baseLatency,
+        packet_loss: 0.0,
+        jitter: 1.5,
+        bandwidth: 850.0,
+        cpu: r.baseCpu,
+        memory: 45.0,
+        link_status: 1,
+        failure_label: 0
+      },
+      analysis: {
+        failure_risk: 2.0,
+        is_anomaly: false,
+        anomaly_score: 0.12,
+        explanation: 'System operating within standard thresholds. Bandwidth and memory consumption are nominal.',
+        root_cause: 'None',
+        cli_recommendation: 'show ip interface brief\nshow policy-map interface',
+        timeline_events: [
+          { time: new Date(Date.now() - 3600000).toLocaleTimeString(), type: 'info', msg: 'System initialized' },
+          { time: new Date(Date.now() - 1800000).toLocaleTimeString(), type: 'info', msg: 'Link status check normal' }
+        ]
+      }
+    };
+  });
+  return data;
+};
+
+const generateInitialMockHistories = (): Record<string, EnrichedHistoryPoint[]> => {
+  const histories: Record<string, EnrichedHistoryPoint[]> = {};
+  MOCK_ROUTER_INFOS.forEach(r => {
+    const points: EnrichedHistoryPoint[] = [];
+    const now = Date.now();
+    for (let i = 29; i >= 0; i--) {
+      const timeOffset = i * 10000; // 10s intervals
+      const timeStr = new Date(now - timeOffset).toISOString();
+      const cpu = Math.max(5, r.baseCpu + Math.round((Math.random() - 0.5) * 10));
+      const latency = Math.max(2, r.baseLatency + Math.round((Math.random() - 0.5) * 6));
+      points.push({
+        timestamp: timeStr,
+        router_id: r.id,
+        router_name: r.name,
+        latency,
+        packet_loss: Math.random() > 0.95 ? parseFloat((Math.random() * 2).toFixed(2)) : 0.0,
+        jitter: 1.2 + Math.random() * 0.8,
+        bandwidth: 800 + Math.random() * 100,
+        cpu,
+        memory: 42 + Math.random() * 6,
+        link_status: 1,
+        failure_label: 0,
+        failure_risk: cpu > 60 ? 30 : 2 + Math.round(Math.random() * 5),
+        is_anomaly: false,
+        anomaly_score: 0.1 + Math.random() * 0.1
+      });
+    }
+    histories[r.id] = points;
+  });
+  return histories;
+};
 
 export const App: React.FC = () => {
   // Auth state
@@ -33,6 +108,7 @@ export const App: React.FC = () => {
 
   // Connection and live states
   const [isConnected, setIsConnected] = useState(false);
+  const [isMockMode, setIsMockMode] = useState(false);
   const [telemetryData, setTelemetryData] = useState<Record<string, RouterState>>({});
   const [alerts, setAlerts] = useState<ActiveAlert[]>([]);
   const [selectedRouterId, setSelectedRouterId] = useState<string | null>('SDSC-SHAR');
@@ -78,6 +154,176 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', handleLocationChange);
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
+
+  useEffect(() => {
+    // If not connected after 4 seconds, activate mock mode
+    const timer = setTimeout(() => {
+      if (!isConnected) {
+        setIsMockMode(true);
+        console.log('Backend offline. Activating client-side mock telemetry sandbox mode.');
+      }
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (!isMockMode) return;
+
+    // Load initial mock states asynchronously to satisfy react-hooks/set-state-in-effect
+    const initTimer = setTimeout(() => {
+      setTelemetryData(generateInitialMockState());
+      setRouterHistory(generateInitialMockHistories());
+      setSatelliteData({
+        solar_flare: false,
+        satellites: {
+          'Cartosat-3': {
+            name: 'Cartosat-3',
+            type: 'LEO',
+            altitude: 509,
+            velocity: 7.6,
+            snr: 24.5,
+            packet_loss: 0.1,
+            temp: 22.4,
+            los: true,
+            lock_node: 'ISTRAC-BGL',
+            orbit_angle: 45
+          },
+          'GSAT-31': {
+            name: 'GSAT-31',
+            type: 'GEO',
+            altitude: 35786,
+            velocity: 3.07,
+            snr: 16.2,
+            packet_loss: 0.0,
+            temp: 45.8,
+            los: true,
+            lock_node: 'MCF-HSN',
+            orbit_angle: 120
+          }
+        }
+      });
+    }, 0);
+
+    const interval = setInterval(() => {
+      const nowStr = new Date().toISOString();
+
+      setTelemetryData(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(id => {
+          const node = next[id];
+          const isLinkDown = node.telemetry.link_status === 0;
+
+          let cpu = node.telemetry.cpu;
+          let latency = node.telemetry.latency;
+          let packet_loss = node.telemetry.packet_loss;
+          let failure_risk = node.analysis.failure_risk;
+          let is_anomaly = node.analysis.is_anomaly;
+
+          if (isLinkDown) {
+            cpu = 0;
+            latency = 0;
+            packet_loss = 100;
+            failure_risk = 99;
+          } else {
+            cpu = Math.max(5, Math.min(95, cpu + Math.round((Math.random() - 0.5) * 6)));
+            latency = Math.max(2, Math.min(250, latency + Math.round((Math.random() - 0.5) * 4)));
+            packet_loss = Math.max(0, Math.min(25, packet_loss + (Math.random() > 0.9 ? parseFloat((Math.random() * 1.5 - 0.7).toFixed(2)) : 0)));
+            
+            if (cpu > 80 || packet_loss > 3.0) {
+              failure_risk = Math.min(98, failure_risk + Math.round(Math.random() * 8));
+            } else {
+              failure_risk = Math.max(2, failure_risk - Math.round(Math.random() * 4));
+            }
+
+            if (failure_risk > 45 || packet_loss > 5.0) {
+              is_anomaly = Math.random() > 0.4;
+            } else {
+              is_anomaly = false;
+            }
+          }
+
+          next[id] = {
+            ...node,
+            telemetry: {
+              ...node.telemetry,
+              timestamp: nowStr,
+              cpu,
+              latency,
+              packet_loss: parseFloat(packet_loss.toFixed(2)),
+            },
+            analysis: {
+              ...node.analysis,
+              failure_risk,
+              is_anomaly,
+              anomaly_score: parseFloat((failure_risk / 100 + Math.random() * 0.1).toFixed(2))
+            }
+          };
+        });
+        return next;
+      });
+
+      // Update history caches
+      setRouterHistory(prev => {
+        const next = { ...prev };
+        MOCK_ROUTER_INFOS.forEach(r => {
+          setTelemetryData(currentData => {
+            const current = currentData[r.id];
+            if (current) {
+              const currentHistory = next[r.id] || [];
+              const newPoint: EnrichedHistoryPoint = {
+                ...current.telemetry,
+                failure_risk: current.analysis.failure_risk,
+                is_anomaly: current.analysis.is_anomaly,
+                anomaly_score: current.analysis.anomaly_score
+              };
+              next[r.id] = [...currentHistory, newPoint].slice(-30);
+            }
+            return currentData;
+          });
+        });
+        return next;
+      });
+
+      // Update satellite mock values
+      setSatelliteData(prev => {
+        if (!prev) return null;
+        const solarFlare = prev.solar_flare;
+        const nextSatellites = { ...prev.satellites };
+
+        if (nextSatellites['Cartosat-3']) {
+          const sat = nextSatellites['Cartosat-3'];
+          const nextAngle = (sat.orbit_angle + 1) % 360;
+          const los = nextAngle >= 0 && nextAngle <= 180;
+          nextSatellites['Cartosat-3'] = {
+            ...sat,
+            orbit_angle: nextAngle,
+            los,
+            snr: los ? Math.max(10, Math.min(32, sat.snr + (Math.random() - 0.5) * 2)) : 0,
+            temp: Math.max(15, Math.min(45, sat.temp + (Math.random() - 0.5) * 1.5))
+          };
+        }
+
+        if (nextSatellites['GSAT-31']) {
+          const sat = nextSatellites['GSAT-31'];
+          nextSatellites['GSAT-31'] = {
+            ...sat,
+            snr: !solarFlare ? Math.max(12, Math.min(22, sat.snr + (Math.random() - 0.5) * 1)) : 0,
+            temp: Math.max(40, Math.min(85, sat.temp + (Math.random() - 0.5) * 3))
+          };
+        }
+
+        return {
+          ...prev,
+          satellites: nextSatellites
+        };
+      });
+    }, 2000);
+
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
+  }, [isMockMode]);
 
   const handleTabNavigate = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6') => {
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
@@ -219,6 +465,101 @@ export const App: React.FC = () => {
 
   // REST trigger: Manual override injection
   const handleTriggerScenario = async (routerId: string, scenarioType: string) => {
+    if (isMockMode) {
+      // Mock failure injection logic
+      setTelemetryData(prev => {
+        const next = { ...prev };
+        const node = next[routerId];
+        if (node) {
+          let cpu = node.telemetry.cpu;
+          let latency: number;
+          let packet_loss: number;
+          let link_status = 1;
+          let explanation: string;
+          let root_cause: string;
+          let failure_risk: number;
+          let is_anomaly: boolean;
+
+          if (scenarioType === 'congestion') {
+            cpu = Math.max(85, cpu);
+            latency = 180 + Math.round(Math.random() * 50);
+            packet_loss = 3.5 + parseFloat((Math.random() * 2).toFixed(2));
+            failure_risk = 85;
+            is_anomaly = true;
+            explanation = 'High bandwidth usage detected on QoS priority queues, leading to buffer occupancy spikes.';
+            root_cause = 'Bandwidth Congestion / Queue Exhaustion';
+          } else if (scenarioType === 'overload') {
+            cpu = 96 + Math.round(Math.random() * 3);
+            latency = 120 + Math.round(Math.random() * 40);
+            packet_loss = 1.8 + parseFloat((Math.random() * 1).toFixed(2));
+            failure_risk = 92;
+            is_anomaly = true;
+            explanation = 'Device CPU core is overloaded due to memory buffer leaks or high control plane packet processing rates.';
+            root_cause = 'Device CPU/Memory Overload';
+          } else if (scenarioType === 'instability') {
+            cpu = Math.max(40, cpu);
+            latency = 220 + Math.round(Math.random() * 80);
+            packet_loss = 8.5 + parseFloat((Math.random() * 5).toFixed(2));
+            link_status = 0; // Link Flapping/Down
+            failure_risk = 97;
+            is_anomaly = true;
+            explanation = 'Physical underlay link flap detected. High packet drops on active interface and routing protocol reconvergence.';
+            root_cause = 'Routing Instability / Link Flapping';
+          } else {
+            // Normal / Nominal
+            cpu = 20;
+            latency = 15;
+            packet_loss = 0.0;
+            link_status = 1;
+            failure_risk = 2;
+            is_anomaly = false;
+            explanation = 'System operating within standard thresholds. Bandwidth and memory consumption are nominal.';
+            root_cause = 'None';
+          }
+
+          next[routerId] = {
+            ...node,
+            telemetry: {
+              ...node.telemetry,
+              cpu,
+              latency,
+              packet_loss,
+              link_status,
+            },
+            analysis: {
+              ...node.analysis,
+              failure_risk,
+              is_anomaly,
+              anomaly_score: is_anomaly ? 0.85 : 0.05,
+              explanation,
+              root_cause,
+            }
+          };
+
+          // Also generate/update alarm in state if anomaly
+          if (is_anomaly) {
+            setAlerts(prevAlerts => {
+              const filterAlerts = prevAlerts.filter(a => a.router_id !== routerId);
+              return [
+                ...filterAlerts,
+                {
+                  router_id: routerId,
+                  router_name: node.telemetry.router_name,
+                  risk_score: failure_risk,
+                  root_cause,
+                  timestamp: new Date().toISOString()
+                }
+              ];
+            });
+          } else {
+            setAlerts(prevAlerts => prevAlerts.filter(a => a.router_id !== routerId));
+          }
+        }
+        return next;
+      });
+      return;
+    }
+
     const response = await fetch(`${BACKEND_URL}/api/simulate-failure`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -232,6 +573,38 @@ export const App: React.FC = () => {
 
   // REST trigger: Self-healing mitigation
   const handleMitigate = async (routerId: string) => {
+    if (isMockMode) {
+      // Mock mitigation
+      setTelemetryData(prev => {
+        const next = { ...prev };
+        const node = next[routerId];
+        if (node) {
+          next[routerId] = {
+            ...node,
+            telemetry: {
+              ...node.telemetry,
+              cpu: 18,
+              latency: 12,
+              packet_loss: 0.0,
+              link_status: 1,
+            },
+            analysis: {
+              ...node.analysis,
+              failure_risk: 1,
+              is_anomaly: false,
+              anomaly_score: 0.02,
+              explanation: 'System operating within standard thresholds. Bandwidth and memory consumption are nominal.',
+              root_cause: 'None',
+            }
+          };
+        }
+        return next;
+      });
+      // Clear alert
+      setAlerts(prev => prev.filter(a => a.router_id !== routerId));
+      return;
+    }
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/mitigate`, {
         method: 'POST',
@@ -249,6 +622,21 @@ export const App: React.FC = () => {
 
   // REST trigger: Copilot NLP Query
   const handleSendCopilotQuery = async (query: string, routerId: string | null, history: ChatMessage[]) => {
+    if (isMockMode) {
+      const lowerQuery = query.toLowerCase();
+      let answer: string;
+      if (lowerQuery.includes('status') || lowerQuery.includes('health')) {
+        answer = `**PRED-NOC Sandbox Copilot System Status Report**:\n\nAll ground tracking and sync channels are simulated as UP. Under mock telemetry mode, QoS metrics are updated every 2 seconds. The selected node **${routerId || 'none'}** is reporting nominal conditions.`;
+      } else if (lowerQuery.includes('solar') || lowerQuery.includes('flare')) {
+        answer = `**ISRO SOP-RAG Space Segment Warning (Ref: SOP-42-Flare)**:\n\nDuring extreme Solar Flare events (solar particle storms), high-frequency transponders on GEO satellites like GSAT-31 experience severe attenuation. GROUND ACTION: Route backup telemetry via LEO satellite Cartosat-3 or fallback to low-frequency underlay tracking channels.`;
+      } else if (lowerQuery.includes('mitigate') || lowerQuery.includes('heal') || lowerQuery.includes('congestion')) {
+        answer = `**ISRO SOP-RAG QoS Congestion Mitigation SOP**:\n\n1. Verify active traffic class policies using: \`show policy-map interface\`\n2. Shift non-critical tracking feeds to secondary transponders.\n3. Trigger automated self-healing protocol to re-prioritize telemetry sync.`;
+      } else {
+        answer = `**PRED-NOC RAG Bot (Sandbox fallback)**:\n\nI have scanned the local ISRO SOP (Standard Operating Procedures) manuals for ground station telemetry recovery. For the selected router **${routerId || 'SDSC-SHAR'}**, please verify physical interface statuses and execute dynamic traffic-shaping controls.`;
+      }
+      return { response: answer };
+    }
+
     const formattedHistory = history
       .filter(m => m.id !== 'welcome' && !m.text.startsWith('Error connecting'))
       .map(m => ({
@@ -328,7 +716,11 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono">
-            {isConnected ? (
+            {isMockMode ? (
+              <span id="ws-status-mock" className="flex items-center gap-1.5 text-noc-primary bg-noc-primary/10 border border-noc-primary/35 px-2.5 py-1 rounded shadow-glow-cyan">
+                <Radio className="w-3.5 h-3.5 animate-pulse" /> TELEMETRY: SIMULATION (SANDBOX)
+              </span>
+            ) : isConnected ? (
               <span id="ws-status-online" className="flex items-center gap-1.5 text-noc-success bg-noc-success/10 border border-noc-success/35 px-2.5 py-1 rounded">
                 <Wifi className="w-3.5 h-3.5" /> TELEMETRY: LIVE
               </span>
@@ -573,6 +965,35 @@ export const App: React.FC = () => {
                   <SatelliteMonitor
                     data={satelliteData}
                     onInjectSolarFlare={async (active) => {
+                      if (isMockMode) {
+                        setSatelliteData(prev => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            solar_flare: active
+                          };
+                        });
+                        // Add flare alerts/mitigation checks if active
+                        if (active) {
+                          setAlerts(prevAlerts => {
+                            const filtered = prevAlerts.filter(a => a.router_id !== 'ALL');
+                            return [
+                              ...filtered,
+                              {
+                                router_id: 'ALL',
+                                router_name: 'Space Segments',
+                                risk_score: 99,
+                                root_cause: 'Solar energetic particle event causing satellite transponder disruption and link outages.',
+                                timestamp: new Date().toISOString()
+                              }
+                            ];
+                          });
+                        } else {
+                          setAlerts(prevAlerts => prevAlerts.filter(a => a.router_id !== 'ALL'));
+                        }
+                        return;
+                      }
+
                       await fetch(`${BACKEND_URL}/api/simulate-solar-flare`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
