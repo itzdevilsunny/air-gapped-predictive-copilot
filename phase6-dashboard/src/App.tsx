@@ -659,6 +659,409 @@ function NodeInspector({ node, selfheal }: { node: TopoNode | null; selfheal: Se
   );
 }
 
+const ROUTER_DEPENDENCIES = {
+  "ISTRAC-BGL": {
+    name: "ISTRAC Bangalore",
+    role: "Master NOC Hub",
+    criticality: "CRITICAL",
+    services: ["Mission Control Link", "Spacecraft Tracking Master", "Data Archival", "Network Management"],
+    downstream: ["NOC-DEL", "NOC-MUM", "SDSC-SHAR"],
+    backup_path: "via NOC-DEL secondary MPLS"
+  },
+  "SDSC-SHAR": {
+    name: "SDSC Sriharikota",
+    role: "Launch Site Operations",
+    criticality: "CRITICAL",
+    services: ["Launch Command Link", "Real-time Countdown Data", "Safety System Telemetry"],
+    downstream: [],
+    backup_path: "via VSAT backup (30s failover)"
+  },
+  "MCF-HSN": {
+    name: "MCF Hassan",
+    role: "Satellite Control Facility",
+    criticality: "HIGH",
+    services: ["Satellite TT&C Commands", "Orbital Maintenance Data", "GEO Belt Coordination"],
+    downstream: [],
+    backup_path: "via MCF Bhopal secondary"
+  },
+  "NOC-DEL": {
+    name: "NOC Delhi",
+    role: "Northern India Gateway",
+    criticality: "HIGH",
+    services: ["MPLS Backbone Routing", "Government Network Interface", "NIC Peering"],
+    downstream: ["TRACK-PBL"],
+    backup_path: "via NOC-MUM alternate path"
+  },
+  "NOC-MUM": {
+    name: "NOC Mumbai",
+    role: "Western India Gateway",
+    criticality: "MEDIUM",
+    services: ["International Peering", "ISRO External Data Exchange", "Cloud Connectivity"],
+    downstream: [],
+    backup_path: "via NOC-DEL reroute"
+  },
+  "TRACK-PBL": {
+    name: "TRACK Port Blair",
+    role: "Downrange Tracking Facility",
+    criticality: "HIGH",
+    services: ["Deep Space Communications", "Downrange Rocket Tracking", "S-band Ground Link"],
+    downstream: [],
+    backup_path: "via ISTRAC Bangalore backup"
+  }
+};
+
+const LINKS = [
+  { source: "ISTRAC-BGL", target: "SDSC-SHAR", label: "Primary MPLS link (100M)" },
+  { source: "ISTRAC-BGL", target: "MCF-HSN", label: "Primary MPLS link (50M)" },
+  { source: "ISTRAC-BGL", target: "NOC-DEL", label: "Core Backbone link (1G)" },
+  { source: "ISTRAC-BGL", target: "NOC-MUM", label: "Core Backbone link (1G)" },
+  { source: "NOC-DEL", target: "TRACK-PBL", label: "S-band Satellite Link (20M)" },
+  { source: "NOC-MUM", target: "TRACK-PBL", label: "Alternate Downrange Link" },
+  { source: "NOC-DEL", target: "NOC-MUM", label: "Backbone Interconnect" },
+];
+
+
+
+const getTelemetrySnapshots = (): Record<string, any> => {
+  const raw = (window as any).__liveTelemetry;
+  if (raw) {
+    const res: Record<string, any> = {};
+    Object.keys(raw).forEach(rid => {
+      const val = raw[rid];
+      res[rid] = (val && val.telemetry) ? val.telemetry : val;
+    });
+    return res;
+  }
+  
+  const base: Record<string, any> = {};
+  const BASELINES: Record<string, any> = {
+    'ISTRAC-BGL': { latency: 15, cpu: 35, bandwidth: 50 },
+    'SDSC-SHAR': { latency: 25, cpu: 45, bandwidth: 80 },
+    'MCF-HSN': { latency: 20, cpu: 30, bandwidth: 40 },
+    'NOC-DEL': { latency: 30, cpu: 55, bandwidth: 60 },
+    'NOC-MUM': { latency: 28, cpu: 50, bandwidth: 70 },
+    'TRACK-PBL': { latency: 45, cpu: 25, bandwidth: 30 }
+  };
+  Object.keys(ROUTER_DEPENDENCIES).forEach(rid => {
+    const b = BASELINES[rid];
+    base[rid] = {
+      router_id: rid,
+      router_name: ROUTER_DEPENDENCIES[rid as keyof typeof ROUTER_DEPENDENCIES].name,
+      latency: b.latency,
+      packet_loss: 0.0,
+      jitter: 1.5,
+      bandwidth: b.bandwidth,
+      cpu: b.cpu,
+      memory: b.cpu + 5,
+      link_status: 1,
+      failure_label: 0
+    };
+  });
+  return base;
+};
+
+const getMockTopology = () => {
+  const telemetry = getTelemetrySnapshots();
+  const nodes = Object.keys(ROUTER_DEPENDENCIES).map(rid => {
+    const dep = ROUTER_DEPENDENCIES[rid as keyof typeof ROUTER_DEPENDENCIES];
+    const tel = telemetry[rid] || {};
+    
+    let status: 'green' | 'yellow' | 'red' = 'green';
+    if (tel.failure_label === 1 || tel.failure_label === 2) status = 'yellow';
+    if (tel.failure_label === 3 || tel.link_status === 0) status = 'red';
+    
+    return {
+      id: rid,
+      name: dep.name,
+      role: dep.role,
+      criticality: dep.criticality,
+      status,
+      failure_label: tel.failure_label || 0,
+      latency: tel.latency || 0,
+      packet_loss: tel.packet_loss || 0,
+      bandwidth: tel.bandwidth || 0,
+      cpu: tel.cpu || 0,
+      link_status: tel.link_status !== undefined ? tel.link_status : 1,
+      downstream: dep.downstream,
+      services: dep.services
+    };
+  });
+  
+  const edges = LINKS.map(l => ({
+    from: l.source,
+    to: l.target,
+    label: l.label
+  }));
+  
+  return { nodes, edges };
+};
+
+const getMockSelfHeal = () => {
+  const telemetry = getTelemetrySnapshots();
+  const selfheals: Record<string, any> = {};
+  
+  const PLAYBOOKS: Record<string, any> = {
+    "Link Congestion": {
+      steps: ["Route non-critical streams to secondary links", "Deploy rate-limit QoS policy map to interface"],
+      cli: (name: string, _rid: string) => `! emergency traffic shaping on ${name}\npolicy-map ISRO-QOS-SHAPING\n class ISRO-CRITICAL-TELEMETRY\n  priority percent 50\n class class-default\n  shape average 10000000\ninterface Tunnel10\n service-policy output ISRO-QOS-SHAPING\nend`,
+      fix_min: 5,
+      auto: true
+    },
+    "Device Overload": {
+      steps: ["Flush router lookup tables dynamically", "Set logging buffer cpu limits", "Restart management daemon"],
+      cli: (name: string, _rid: string) => `! reset cpu logs on ${name}\nprocess cpu threshold type total rising 80 interval 5\nclear ip route *\nend`,
+      fix_min: 5,
+      auto: true
+    },
+    "Link Flapping": {
+      steps: ["Apply carrier-delay to suppress brief flaps", "Tune OSPF hello/dead timers"],
+      cli: (name: string, _rid: string) => `! ospf tuning on ${name}\ninterface GigabitEthernet0/1\n carrier-delay msec 2000\nend`,
+      fix_min: 2,
+      auto: true
+    },
+    "Link Down": {
+      steps: ["Attempt interface restoration", "Activate backup static route", "Dispatch field engineer"],
+      cli: (name: string, _rid: string) => `! restore interface on ${name}\ninterface GigabitEthernet0/1\n no shutdown\nend`,
+      fix_min: 15,
+      auto: false
+    },
+    "Normal": {
+      steps: ["No action required."],
+      cli: (_name: string, _rid: string) => `! Healthy.`,
+      fix_min: 0,
+      auto: false
+    }
+  };
+
+  Object.keys(ROUTER_DEPENDENCIES).forEach(rid => {
+    const dep = ROUTER_DEPENDENCIES[rid as keyof typeof ROUTER_DEPENDENCIES];
+    const tel = telemetry[rid] || {};
+    
+    let status = "NORMAL";
+    let priority = "P4-NORMAL";
+    let priority_color = "green";
+    let failure_type = "Normal";
+    
+    if (tel.link_status === 0) {
+      status = "CRITICAL";
+      priority = "P1-CRITICAL";
+      priority_color = "red";
+      failure_type = "Link Down";
+    } else if (tel.failure_label === 1) {
+      status = "CRITICAL";
+      priority = "P1-CRITICAL";
+      priority_color = "red";
+      failure_type = "Link Congestion";
+    } else if (tel.failure_label === 2) {
+      status = "CRITICAL";
+      priority = "P1-CRITICAL";
+      priority_color = "red";
+      failure_type = "Device Overload";
+    } else if (tel.failure_label === 3) {
+      status = "CRITICAL";
+      priority = "P1-CRITICAL";
+      priority_color = "red";
+      failure_type = "Link Flapping";
+    } else {
+      if (tel.bandwidth > 150.0) {
+        status = "PREDICTIVE";
+        priority = "P2-HIGH";
+        priority_color = "orange";
+        failure_type = "Link Congestion";
+      } else if (tel.cpu > 65.0) {
+        status = "PREDICTIVE";
+        priority = "P2-HIGH";
+        priority_color = "orange";
+        failure_type = "Device Overload";
+      }
+    }
+
+    const pb = PLAYBOOKS[failure_type] || PLAYBOOKS["Normal"];
+    
+    selfheals[rid] = {
+      router_id: rid,
+      router_name: dep.name,
+      role: dep.role,
+      criticality: dep.criticality,
+      status,
+      priority,
+      priority_color,
+      risk_score: tel.failure_label > 0 ? 90.0 : 5.0,
+      predicted_failure: failure_type,
+      time_to_failure: status === "PREDICTIVE" ? "~30m" : null,
+      root_cause: failure_type === "Normal" ? "Normal operations" : failure_type,
+      confidence_score: 95.0,
+      rule_triggered: status !== "NORMAL" ? "Baseline limit violation" : "None",
+      ai_attribution: status !== "NORMAL" ? "Dynamic baseline anomaly" : "Normal Profile",
+      evidences: status !== "NORMAL" ? [`Metric deviation detected on ${dep.name}`] : [],
+      latest_metrics: {
+        latency: tel.latency || 0,
+        packet_loss: tel.packet_loss || 0,
+        jitter: tel.jitter || 1.5,
+        bandwidth: tel.bandwidth || 0,
+        cpu: tel.cpu || 0,
+        memory: tel.memory || 0,
+        link_status: tel.link_status !== undefined ? tel.link_status : 1
+      },
+      failure_type,
+      impact_analysis: status !== "NORMAL" ? [`Affected Services: ${dep.services.join(', ')}`] : [],
+      mitigation_steps: pb.steps,
+      cli_fix: pb.cli(dep.name, rid),
+      automation_script: `# Automated recovery script for ${dep.name}`,
+      estimated_fix_minutes: pb.fix_min,
+      auto_applicable: pb.auto,
+      services: dep.services,
+      downstream_routers: dep.downstream,
+      backup_path: dep.backup_path
+    };
+  });
+  
+  return selfheals;
+};
+
+const getMockIncidents = () => {
+  const sh = getMockSelfHeal();
+  const incs: any[] = [];
+  Object.keys(sh).forEach(rid => {
+    const s = sh[rid];
+    if (s.status === 'CRITICAL') {
+      incs.push({
+        id: Math.floor(Math.random() * 100000),
+        router_id: rid,
+        router_name: s.router_name,
+        failure_type: s.failure_type.toLowerCase(),
+        severity: s.priority === 'P1-CRITICAL' ? 'CRITICAL' : 'WARNING',
+        started_at: new Date().toISOString(),
+        resolved_at: null,
+        description: `Active ${s.failure_type} detected on ${s.router_name} (${rid}).`
+      });
+    }
+  });
+  return incs;
+};
+
+function generateChittiResponse(query: string, _history: any[], telemetry: Record<string, any>): string {
+  const qLower = query.toLowerCase();
+  
+  // Find mentioned router
+  let routerId = '';
+  for (const rid of Object.keys(telemetry)) {
+    const name = telemetry[rid].router_name ? telemetry[rid].router_name.toLowerCase() : '';
+    if (
+      qLower.includes(rid.toLowerCase()) || 
+      qLower.includes(name) || 
+      (rid === 'SDSC-SHAR' && qLower.includes('sriharikota')) || 
+      (rid === 'ISTRAC-BGL' && qLower.includes('bangalore')) || 
+      (rid === 'MCF-HSN' && qLower.includes('hassan')) || 
+      (rid === 'NOC-DEL' && qLower.includes('delhi')) || 
+      (rid === 'NOC-MUM' && qLower.includes('mumbai')) || 
+      (rid === 'TRACK-PBL' && qLower.includes('port blair'))
+    ) {
+      routerId = rid;
+      break;
+    }
+  }
+
+  if (!routerId) {
+    for (const rid of Object.keys(telemetry)) {
+      if (telemetry[rid].failure_label > 0 || telemetry[rid].link_status === 0) {
+        routerId = rid;
+        break;
+      }
+    }
+  }
+
+  let actionTag = '';
+  const isMitigateRequest = /\b(fix|mitigate|heal|restore|resolve|do it)\b/.test(qLower);
+  const isDiagnoseRequest = /\b(ping|tracert|trace|diagnose|reachability|check)\b/.test(qLower);
+
+  if (isMitigateRequest) {
+    const targetId = routerId || 'NOC-DEL';
+    actionTag = ` [ACTION: mitigate, router_id: ${targetId}]`;
+  } else if (isDiagnoseRequest) {
+    const targetHost = routerId || '127.0.0.1';
+    const cmd = qLower.includes('trace') || qLower.includes('tracert') ? 'tracert' : 'ping';
+    actionTag = ` [ACTION: diagnose, host: ${targetHost}, command: ${cmd}]`;
+  }
+
+  let responseText = '';
+  const routerData = routerId ? telemetry[routerId] : null;
+
+  if (isMitigateRequest && routerId && routerData) {
+    const name = routerData.router_name;
+    const label = routerData.failure_label;
+    const isDown = routerData.link_status === 0;
+
+    if (isDown || label === 3) {
+      responseText = `Executing backup route policy on flapping SD-WAN interface for ${name}. Shutting down primary GigabitEthernet0/1 and activating secondary GigabitEthernet0/2 interface to stabilize OSPF flapping.`;
+    } else if (label === 1) {
+      responseText = `Applying Cisco QoS shaping policy ISRO-QOS-SHAPING to throttle non-critical class traffic to 10Mbps maximum on congested interface of ${name}. This will prioritize critical telemetry data streams.`;
+    } else if (label === 2) {
+      responseText = `Running diagnostic daemon reset commands on CPU-overloaded ${name}. Executing memory table flushing command 'clear ip route *' and installing threshold monitors.`;
+    } else {
+      responseText = `Initiating standard circuit diagnostics and interface checks on nominal node ${name}. Link status is normal.`;
+    }
+    responseText += ` Executing script now.${actionTag} Dot.`;
+    return responseText;
+  }
+
+  if (isDiagnoseRequest) {
+    const hostName = routerData ? routerData.router_name : 'the gateway node';
+    responseText = `Initiating NOC diagnostics for ${hostName}. Spawning traceroute and ping probes to assess network latency and packet delivery. Terminal reports normal physical carrier metrics. Check action log output window.${actionTag} Dot.`;
+    return responseText;
+  }
+
+  if (routerId && routerData) {
+    const name = routerData.router_name;
+    const status = routerData.link_status === 1 ? 'ACTIVE/UP' : 'OFFLINE/DOWN';
+    const label = routerData.failure_label;
+    const latency = routerData.latency;
+    const cpu = routerData.cpu;
+    const loss = routerData.packet_loss;
+
+    let diagnosis = `Operating nominal at ${latency}ms latency with zero loss.`;
+    if (label === 1) {
+      diagnosis = `Alert! Heavy traffic utilization of ${routerData.bandwidth}% is causing MPLS underlay queue congestion. Enforce shaping rule SOP-NET-01.`;
+    } else if (label === 2) {
+      diagnosis = `Warning! Device CPU is critically high at ${cpu}%, indicating a routing daemon memory leak. Executing routing table clear as per Delhi NOC memory leak SOP.`;
+    } else if (label === 3 || routerData.link_status === 0) {
+      diagnosis = `Critical! Tunnel interface is flapping with ${loss}% packet loss. Secondary link reroute required via OSPF convergence.`;
+    }
+
+    responseText = `I have scanned node ${name} (${routerId}). Operational status is ${status}. Telemetry data shows CPU: ${cpu}%, Latency: ${latency}ms. Diagnostic: ${diagnosis} Dot.`;
+    return responseText;
+  }
+
+  if (qLower.includes('qos') || qLower.includes('shape') || qLower.includes('congestion') || qLower.includes('sop-net-01')) {
+    responseText = `According to ISRO MPLS QoS Policy SOP-NET-01, critical tracking telemetry must be mapped to DSCP EF class. In case of congestion, shape non-critical bandwidth to 10Mbps via 'service-policy output ISRO-QOS-SHAPING'. Dot.`;
+  } else if (qLower.includes('flapping') || qLower.includes('tunnel') || qLower.includes('flap') || qLower.includes('instability')) {
+    responseText = `For SD-WAN routing and link flapping, verify MTU size is 1500 (or 1400 on tunnels) and shut down the unstable primary interface: 'interface GigabitEthernet0/1; shutdown' and 'interface GigabitEthernet0/2; no shutdown'. Dot.`;
+  } else if (qLower.includes('leak') || qLower.includes('cpu') || qLower.includes('memory') || qLower.includes('delhi')) {
+    responseText = `In the event of a routing daemon crash or memory exhaustion (e.g. NOC-DEL leak), clear the routing tables with 'clear ip route *' and set process CPU thresholds to 80% rising. Dot.`;
+  } else if (qLower.includes('ospf') || qLower.includes('neighbor') || qLower.includes('adjacency')) {
+    responseText = `To diagnose OSPF instability or OSPF Hello interval mismatch, run OSPF events debug: 'debug ip ospf event' and analyze 'show ip ospf neighbor' command output. Dot.`;
+  } else if (qLower.includes('topology') || qLower.includes('mesh') || qLower.includes('latencies')) {
+    responseText = `The ISRO mesh topology connects Bangalore, Sriharikota, Hassan, Delhi, Mumbai, and Port Blair. Latency threshold Bangalore-Sriharikota is 25ms, jitter below 5ms. Dot.`;
+  } else if (qLower.includes('cartosat') || qLower.includes('gsat') || qLower.includes('satellite') || qLower.includes('solar') || qLower.includes('flare')) {
+    responseText = `Live orbital tracking telemetry confirms the Space Segments transponders are active. Solar flare prediction risk scores are dynamically updated by the ML forecasting deck. Dot.`;
+  } else {
+    responseText = `System Status: Nominal. I am monitoring the ISRO MPLS mesh. All telemetry channels are operating at optimal speeds. Ask me about specific node metrics or ask me to perform mitigations. Dot.`;
+  }
+
+  return responseText;
+}
+
+const isOfflineMode = () => {
+  return (
+    typeof window !== 'undefined' && (
+      window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('github.io') ||
+      (window as any).__isOffline ||
+      localStorage.getItem('offline_mode') === 'true'
+    )
+  );
+};
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
@@ -669,6 +1072,7 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [activeSection, setActiveSection] = useState<'selfheal' | 'chat'>('selfheal');
   const [criticalCount, setCriticalCount] = useState(0);
+  const [isLocalMockMode, setIsLocalMockMode] = useState(() => isOfflineMode());
 
   const fetchAll = useCallback(async () => {
     try {
@@ -691,16 +1095,117 @@ export default function App() {
     } catch (e) { console.error('Fetch error:', e); }
   }, []);
 
+  // Auto-detect offline mode
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      if (active) {
+        controller.abort();
+        setIsLocalMockMode(true);
+        setWsConnected(true);
+      }
+    }, 2000);
+
+    fetch(`${API}/api/ph6/topology`, { signal: controller.signal })
+      .then(r => {
+        if (r.ok) {
+          clearTimeout(timeout);
+        } else {
+          setIsLocalMockMode(true);
+          setWsConnected(true);
+        }
+      })
+      .catch(() => {
+        clearTimeout(timeout);
+        if (active) {
+          setIsLocalMockMode(true);
+          setWsConnected(true);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, []);
+
+  // Fetch Interceptor for offline mode
+  useEffect(() => {
+    if (!isLocalMockMode) return;
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async (input, init) => {
+      const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+      
+      if (urlStr.includes('/api/ph6') || urlStr.includes('/api/ph1') || urlStr.includes('/api/ph5')) {
+        const urlObj = new URL(urlStr, window.location.origin);
+        
+        // 1. GET /api/ph6/topology
+        if (urlObj.pathname.endsWith('/api/ph6/topology')) {
+          return new Response(JSON.stringify(getMockTopology()), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // 2. GET /api/ph6/selfheal
+        if (urlObj.pathname.endsWith('/api/ph6/selfheal')) {
+          return new Response(JSON.stringify(getMockSelfHeal()), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // 3. GET /api/ph1/incidents
+        if (urlObj.pathname.includes('/api/ph1/incidents')) {
+          return new Response(JSON.stringify(getMockIncidents()), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // 4. POST /api/ph5/query
+        if (urlObj.pathname.endsWith('/api/ph5/query')) {
+          try {
+            const body = JSON.parse(init?.body as string);
+            const query = body.query || '';
+            const answer = generateChittiResponse(query, [], getTelemetrySnapshots());
+            return new Response(JSON.stringify({
+              answer,
+              engine: "Local Expert Engine (SANDBOX)",
+              timestamp: new Date().toISOString()
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (e) {
+            return new Response(JSON.stringify({ detail: "Invalid query payload" }), { status: 400 });
+          }
+        }
+      }
+      
+      return originalFetch(input, init);
+    };
+
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [isLocalMockMode]);
+
   useEffect(() => {
     const initTimer = setTimeout(() => {
       fetchAll();
     }, 0);
     const t = setInterval(fetchAll, 8000);
 
-    // WebSocket for real-time updates
+    // WebSocket for real-time updates (only if not in mock mode)
     let ws: WebSocket | null = null;
     let reconnectTimeout: any = null;
     const connect = () => {
+      if (isLocalMockMode) return;
       ws = new WebSocket(WS_URL);
       ws.onopen = () => setWsConnected(true);
       ws.onclose = () => {
@@ -712,7 +1217,7 @@ export default function App() {
           ws.close();
         }
       };
-      ws.onmessage = () => { /* triggers on any telemetry push — refetch */ fetchAll(); };
+      ws.onmessage = () => { fetchAll(); };
     };
     connect();
     return () => {
@@ -726,7 +1231,7 @@ export default function App() {
         clearTimeout(reconnectTimeout);
       }
     };
-  }, [fetchAll]);
+  }, [fetchAll, isLocalMockMode]);
 
   const selectedNodeData = topology?.nodes.find(n => n.id === selectedNode) ?? null;
   const selectedSelfheal = selfheal && selectedNode ? selfheal[selectedNode] ?? null : null;

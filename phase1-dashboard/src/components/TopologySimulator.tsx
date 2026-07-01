@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback } from 'react';
-import ReactFlow, { Background, Controls, Edge, Node, MarkerType } from 'reactflow';
+import ReactFlow, { Background, Controls, Edge, Node, MarkerType, Handle, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { Snapshot, Router } from '../types';
 import { FAILURE_LABEL_MAP } from '../types';
@@ -55,7 +55,10 @@ const RouterNode = ({ data }: { data: any }) => {
       minWidth: '160px',
       boxShadow: isSelected ? '0 0 20px var(--c-primary)' : '0 4px 6px rgba(0, 0, 0, 0.3)',
       transition: 'all 0.2s ease',
+      position: 'relative',
     }}>
+      <Handle type="target" position={Position.Top} id="target" style={{ background: 'transparent', border: 'none' }} />
+      <Handle type="source" position={Position.Bottom} id="source" style={{ background: 'transparent', border: 'none' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--c-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{data.router.site_type}</span>
         {isDown ? <WifiOff size={14} color="var(--c-danger)" /> : <Wifi size={14} color="var(--c-success)" />}
@@ -116,7 +119,9 @@ export const TopologySimulator: React.FC<Props> = ({ liveData, routers, selected
       return {
         id: link.id,
         source: link.source,
+        sourceHandle: 'source',
         target: link.target,
+        targetHandle: 'target',
         animated: bw > 10 && srcSnap?.link_status !== 0 && tgtSnap?.link_status !== 0,
         type: 'smoothstep', // Use smoothstep instead of bezier for better visual
         style: {

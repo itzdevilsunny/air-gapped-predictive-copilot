@@ -102,13 +102,24 @@ const generateInitialMockHistories = (): Record<string, EnrichedHistoryPoint[]> 
   return histories;
 };
 
+const isOfflineMode = () => {
+  return (
+    typeof window !== 'undefined' && (
+      window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('github.io') ||
+      (window as any).__isOffline ||
+      localStorage.getItem('offline_mode') === 'true'
+    )
+  );
+};
+
 export const App: React.FC = () => {
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('noc_is_logged_in') === 'true');
 
   // Connection and live states
   const [isConnected, setIsConnected] = useState(false);
-  const [isMockMode, setIsMockMode] = useState(false);
+  const [isMockMode, setIsMockMode] = useState(() => isOfflineMode());
   const [telemetryData, setTelemetryData] = useState<Record<string, RouterState>>({});
   const [alerts, setAlerts] = useState<ActiveAlert[]>([]);
   const [selectedRouterId, setSelectedRouterId] = useState<string | null>('SDSC-SHAR');
@@ -165,6 +176,10 @@ export const App: React.FC = () => {
     }, 4000);
     return () => clearTimeout(timer);
   }, [isConnected]);
+
+  useEffect(() => {
+    (window as any).__liveTelemetry = telemetryData;
+  }, [telemetryData]);
 
   useEffect(() => {
     if (!isMockMode) return;
@@ -322,6 +337,108 @@ export const App: React.FC = () => {
     return () => {
       clearTimeout(initTimer);
       clearInterval(interval);
+    };
+  }, [isMockMode]);
+
+  // Fetch Interceptor for offline mode
+  useEffect(() => {
+    if (!isMockMode) return;
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async (input, init) => {
+      const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+      
+      if (urlStr.includes('/api/')) {
+        const urlObj = new URL(urlStr, window.location.origin);
+        
+        // 1. GET /api/sops
+        if (urlObj.pathname.endsWith('/api/sops')) {
+          return new Response(JSON.stringify([
+            {
+              id: "sop-qos-01",
+              title: "SOP-NET-01: MPLS QoS Policy & Congestion Management",
+              content: "In case of Link Congestion: Route non-critical streams to secondary links. Deploy rate-limit QoS policy map to interface. Policy maps shape class-default to 10Mbps maximum and prioritize class ISRO-CRITICAL-TELEMETRY.",
+              created_at: new Date().toISOString()
+            },
+            {
+              id: "sop-bgp-02",
+              title: "SOP-BGP-02: BGP Route Flapping & Table Bloat Mitigation",
+              content: "In case of Link Flapping: Apply carrier-delay 2000 to suppress brief flaps. Tune OSPF hello/dead timers to prevent sub-second peer drops.",
+              created_at: new Date().toISOString()
+            },
+            {
+              id: "sop-mem-03",
+              title: "SOP-MEM-03: Memory Exhaustion / CPU Overload Remediation",
+              content: "In case of Device Overload / Memory Table Bloat: Flush router lookup tables dynamically via 'clear ip route *'. Set logging buffer cpu limits to rising 80 interval 5.",
+              created_at: new Date().toISOString()
+            }
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // 2. GET /api/copilot/status
+        if (urlObj.pathname.endsWith('/api/copilot/status')) {
+          return new Response(JSON.stringify({
+            engine: "Local Expert Engine (SANDBOX)",
+            knowledge_docs: 3
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        // 3. GET /api/router/.../history
+        if (urlObj.pathname.includes('/history')) {
+          const points = [];
+          const now = Date.now();
+          for (let i = 29; i >= 0; i--) {
+            points.push({
+              timestamp: new Date(now - i * 60000).toISOString(),
+              cpu: Math.floor(Math.random() * 40) + 10,
+              latency: Math.floor(Math.random() * 20) + 15,
+              packet_loss: Math.random() > 0.95 ? Math.random() * 2 : 0,
+              bandwidth: Math.floor(Math.random() * 50) + 20,
+              failure_risk: Math.floor(Math.random() * 10) + 5,
+              is_anomaly: false,
+              anomaly_score: 0.05
+            });
+          }
+          return new Response(JSON.stringify(points), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        // 4. POST /api/export-incident
+        if (urlObj.pathname.endsWith('/api/export-incident')) {
+          return new Response(JSON.stringify({
+            success: true,
+            path: "#"
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        // 5. POST /api/diagnose
+        if (urlObj.pathname.endsWith('/api/diagnose')) {
+          return new Response(JSON.stringify({
+            output: "PING 10.100.20.1 (10.100.20.1) 56(84) bytes of data.\n64 bytes from 10.100.20.1: icmp_seq=1 ttl=64 time=18.2 ms\n64 bytes from 10.100.20.1: icmp_seq=2 ttl=64 time=17.9 ms\n\n--- 10.100.20.1 ping statistics ---\n2 packets transmitted, 2 received, 0% packet loss, time 1001ms\nrtt min/avg/max/mdev = 17.912/18.064/18.216/0.152 ms"
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      return originalFetch(input, init);
+    };
+
+    return () => {
+      window.fetch = originalFetch;
     };
   }, [isMockMode]);
 

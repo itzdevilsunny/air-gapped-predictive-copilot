@@ -10,6 +10,131 @@ const cleanContent = (text: string) => {
   return text.replace(/\[ACTION:[\s\S]*?\]/g, '').trim();
 };
 
+const isOfflineMode = () => {
+  return (
+    window.location.hostname.includes('vercel.app') ||
+    window.location.hostname.includes('github.io') ||
+    (window as any).__isOffline ||
+    localStorage.getItem('offline_mode') === 'true'
+  );
+};
+
+function generateChittiResponse(query: string, history: any[], telemetry: Record<string, any>): string {
+  const qLower = query.toLowerCase();
+  
+  // Find mentioned router
+  let routerId = '';
+  for (const rid of Object.keys(telemetry)) {
+    const name = telemetry[rid].router_name ? telemetry[rid].router_name.toLowerCase() : '';
+    if (
+      qLower.includes(rid.toLowerCase()) || 
+      qLower.includes(name) || 
+      (rid === 'SDSC-SHAR' && qLower.includes('sriharikota')) || 
+      (rid === 'ISTRAC-BGL' && qLower.includes('bangalore')) || 
+      (rid === 'MCF-HSN' && qLower.includes('hassan')) || 
+      (rid === 'NOC-DEL' && qLower.includes('delhi')) || 
+      (rid === 'NOC-MUM' && qLower.includes('mumbai')) || 
+      (rid === 'TRACK-PBL' && qLower.includes('port blair'))
+    ) {
+      routerId = rid;
+      break;
+    }
+  }
+
+  // If no specific router mentioned, find any failing one
+  if (!routerId) {
+    for (const rid of Object.keys(telemetry)) {
+      if (telemetry[rid].failure_label > 0 || telemetry[rid].link_status === 0) {
+        routerId = rid;
+        break;
+      }
+    }
+  }
+
+  // Handle Action Trigger check
+  let actionTag = '';
+  const isMitigateRequest = /\b(fix|mitigate|heal|restore|resolve|do it)\b/.test(qLower);
+  const isDiagnoseRequest = /\b(ping|tracert|trace|diagnose|reachability|check)\b/.test(qLower);
+
+  if (isMitigateRequest) {
+    const targetId = routerId || 'NOC-DEL'; // fallback
+    actionTag = ` [ACTION: mitigate, router_id: ${targetId}]`;
+  } else if (isDiagnoseRequest) {
+    const targetHost = routerId || '127.0.0.1';
+    const cmd = qLower.includes('trace') || qLower.includes('tracert') ? 'tracert' : 'ping';
+    actionTag = ` [ACTION: diagnose, host: ${targetHost}, command: ${cmd}]`;
+  }
+
+  // SOP text matching
+  let responseText = '';
+  const routerData = routerId ? telemetry[routerId] : null;
+
+  if (isMitigateRequest && routerId && routerData) {
+    const name = routerData.router_name;
+    const label = routerData.failure_label;
+    const isDown = routerData.link_status === 0;
+
+    if (isDown || label === 3) {
+      responseText = `Executing backup route policy on flapping SD-WAN interface for ${name}. Shutting down primary GigabitEthernet0/1 and activating secondary GigabitEthernet0/2 interface to stabilize OSPF flapping.`;
+    } else if (label === 1) {
+      responseText = `Applying Cisco QoS shaping policy ISRO-QOS-SHAPING to throttle non-critical class traffic to 10Mbps maximum on congested interface of ${name}. This will prioritize critical telemetry data streams.`;
+    } else if (label === 2) {
+      responseText = `Running diagnostic daemon reset commands on CPU-overloaded ${name}. Executing memory table flushing command 'clear ip route *' and installing threshold monitors.`;
+    } else {
+      responseText = `Initiating standard circuit diagnostics and interface checks on nominal node ${name}. Link status is normal.`;
+    }
+    responseText += ` Executing script now.${actionTag} Dot.`;
+    return responseText;
+  }
+
+  if (isDiagnoseRequest) {
+    const hostName = routerData ? routerData.router_name : 'the gateway node';
+    responseText = `Initiating NOC diagnostics for ${hostName}. Spawning traceroute and ping probes to assess network latency and packet delivery. Terminal reports normal physical carrier metrics. Check action log output window.${actionTag} Dot.`;
+    return responseText;
+  }
+
+  // General Questions / Telemetry Queries
+  if (routerId && routerData) {
+    const name = routerData.router_name;
+    const status = routerData.link_status === 1 ? 'ACTIVE/UP' : 'OFFLINE/DOWN';
+    const label = routerData.failure_label;
+    const latency = routerData.latency;
+    const cpu = routerData.cpu;
+    const loss = routerData.packet_loss;
+
+    let diagnosis = `Operating nominal at ${latency}ms latency with zero loss.`;
+    if (label === 1) {
+      diagnosis = `Alert! Heavy traffic utilization of ${routerData.bandwidth}% is causing MPLS underlay queue congestion. Enforce shaping rule SOP-NET-01.`;
+    } else if (label === 2) {
+      diagnosis = `Warning! Device CPU is critically high at ${cpu}%, indicating a routing daemon memory leak. Executing routing table clear as per Delhi NOC memory leak SOP.`;
+    } else if (label === 3 || routerData.link_status === 0) {
+      diagnosis = `Critical! Tunnel interface is flapping with ${loss}% packet loss. Secondary link reroute required via OSPF convergence.`;
+    }
+
+    responseText = `I have scanned node ${name} (${routerId}). Operational status is ${status}. Telemetry data shows CPU: ${cpu}%, Latency: ${latency}ms. Diagnostic: ${diagnosis} Dot.`;
+    return responseText;
+  }
+
+  // SOP details search
+  if (qLower.includes('qos') || qLower.includes('shape') || qLower.includes('congestion') || qLower.includes('sop-net-01')) {
+    responseText = `According to ISRO MPLS QoS Policy SOP-NET-01, critical tracking telemetry must be mapped to DSCP EF class. In case of congestion, shape non-critical bandwidth to 10Mbps via 'service-policy output ISRO-QOS-SHAPING'. Dot.`;
+  } else if (qLower.includes('flapping') || qLower.includes('tunnel') || qLower.includes('flap') || qLower.includes('instability')) {
+    responseText = `For SD-WAN routing and link flapping, verify MTU size is 1500 (or 1400 on tunnels) and shut down the unstable primary interface: 'interface GigabitEthernet0/1; shutdown' and 'interface GigabitEthernet0/2; no shutdown'. Dot.`;
+  } else if (qLower.includes('leak') || qLower.includes('cpu') || qLower.includes('memory') || qLower.includes('delhi')) {
+    responseText = `In the event of a routing daemon crash or memory exhaustion (e.g. NOC-DEL leak), clear the routing tables with 'clear ip route *' and set process CPU thresholds to 80% rising. Dot.`;
+  } else if (qLower.includes('ospf') || qLower.includes('neighbor') || qLower.includes('adjacency')) {
+    responseText = `To diagnose OSPF instability or OSPF Hello interval mismatch, run OSPF events debug: 'debug ip ospf event' and analyze 'show ip ospf neighbor' command output. Dot.`;
+  } else if (qLower.includes('topology') || qLower.includes('mesh') || qLower.includes('latencies')) {
+    responseText = `The ISRO mesh topology connects Bangalore, Sriharikota, Hassan, Delhi, Mumbai, and Port Blair. Latency threshold Bangalore-Sriharikota is 25ms, jitter below 5ms. Dot.`;
+  } else if (qLower.includes('cartosat') || qLower.includes('gsat') || qLower.includes('satellite') || qLower.includes('solar') || qLower.includes('flare')) {
+    responseText = `Live orbital tracking telemetry confirms the Space Segments transponders are active. Solar flare prediction risk scores are dynamically updated by the ML forecasting deck. Dot.`;
+  } else {
+    responseText = `System Status: Nominal. I am monitoring the ISRO MPLS mesh. All telemetry channels are operating at optimal speeds. Ask me about specific node metrics or ask me to perform mitigations. Dot.`;
+  }
+
+  return responseText;
+}
+
 const renderMessageContent = (content: string) => {
   const cleaned = cleanContent(content);
   const parts = cleaned.split(/(```[\s\S]*?```)/g);
@@ -263,6 +388,78 @@ export const Chatbot1: React.FC = () => {
         role: m.role,
         content: m.content
       }));
+
+      if (isOfflineMode()) {
+        const rawTelemetry = (window as any).__liveTelemetry;
+        const telemetry: Record<string, any> = {};
+        if (rawTelemetry) {
+          Object.keys(rawTelemetry).forEach(rid => {
+            const val = rawTelemetry[rid];
+            if (val && val.telemetry) {
+              telemetry[rid] = val.telemetry;
+            } else {
+              telemetry[rid] = val;
+            }
+          });
+        } else {
+          const BASELINES: Record<string, any> = {
+            'ISTRAC-BGL': { latency: 15, cpu: 35, bandwidth: 50 },
+            'SDSC-SHAR': { latency: 25, cpu: 45, bandwidth: 80 },
+            'MCF-HSN': { latency: 20, cpu: 30, bandwidth: 40 },
+            'NOC-DEL': { latency: 30, cpu: 55, bandwidth: 60 },
+            'NOC-MUM': { latency: 28, cpu: 50, bandwidth: 70 },
+            'TRACK-PBL': { latency: 45, cpu: 25, bandwidth: 30 }
+          };
+          const STATIC_ROUTERS = [
+            { id: 'ISTRAC-BGL', name: 'ISTRAC Bangalore', ip_address: '10.101.10.1', site_type: 'Master Control' },
+            { id: 'SDSC-SHAR', name: 'SDSC Sriharikota', ip_address: '10.101.20.1', site_type: 'Launch Site' },
+            { id: 'MCF-HSN', name: 'MCF Hassan', ip_address: '10.101.30.1', site_type: 'Satellite Control' },
+            { id: 'NOC-DEL', name: 'NOC Delhi', ip_address: '10.101.40.1', site_type: 'NOC Gateway' },
+            { id: 'NOC-MUM', name: 'NOC Mumbai', ip_address: '10.101.50.1', site_type: 'NOC Gateway' },
+            { id: 'TRACK-PBL', name: 'TRACK Port Blair', ip_address: '10.101.60.1', site_type: 'Downrange Station' }
+          ];
+          STATIC_ROUTERS.forEach(r => {
+            const baseline = BASELINES[r.id];
+            telemetry[r.id] = {
+              router_id: r.id,
+              router_name: r.name,
+              latency: baseline.latency,
+              packet_loss: 0.0,
+              jitter: 1.5,
+              bandwidth: baseline.bandwidth,
+              cpu: baseline.cpu,
+              memory: baseline.cpu + 5,
+              link_status: 1,
+              failure_label: 0,
+              ip_address: r.ip_address,
+              site_type: r.site_type
+            };
+          });
+        }
+
+        const responseText = generateChittiResponse(queryText, formattedHistory, telemetry);
+        
+        setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+        setLoading(false);
+        
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = {
+              role: 'assistant',
+              content: responseText
+            };
+          }
+          return updated;
+        });
+
+        const voiceText = responseText
+          .replace(/\[ACTION:[\s\S]*?\]/g, '')
+          .replace(/\[System[\s\S]*?\]/g, '')
+          .trim();
+        speakText(voiceText);
+        return;
+      }
 
       const res = await fetch('/api/chatbot1/chat', {
         method: 'POST',

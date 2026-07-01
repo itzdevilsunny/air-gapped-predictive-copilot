@@ -13,16 +13,17 @@ interface NodePosition {
   name: string;
   x: number; // percentage
   y: number; // percentage
+  labelPosition?: 'left' | 'right' | 'top' | 'bottom';
 }
 
 // Relative node locations matching Indian geography layout
 const NODES: NodePosition[] = [
-  { id: 'NOC-DEL', name: 'NOC Delhi', x: 45, y: 18 },
-  { id: 'NOC-MUM', name: 'NOC Mumbai', x: 30, y: 55 },
-  { id: 'MCF-HSN', name: 'MCF Hassan', x: 37, y: 76 },
-  { id: 'ISTRAC-BGL', name: 'ISTRAC Bangalore', x: 44, y: 78 },
-  { id: 'SDSC-SHAR', name: 'SDSC Sriharikota', x: 53, y: 74 },
-  { id: 'TRACK-PBL', name: 'TRACK Port Blair', x: 86, y: 84 },
+  { id: 'NOC-DEL', name: 'NOC Delhi', x: 48, y: 18, labelPosition: 'right' },
+  { id: 'NOC-MUM', name: 'NOC Mumbai', x: 28, y: 52, labelPosition: 'left' },
+  { id: 'MCF-HSN', name: 'MCF Hassan', x: 32, y: 80, labelPosition: 'left' },
+  { id: 'ISTRAC-BGL', name: 'ISTRAC Bangalore', x: 45, y: 82, labelPosition: 'bottom' },
+  { id: 'SDSC-SHAR', name: 'SDSC Sriharikota', x: 55, y: 74, labelPosition: 'top' },
+  { id: 'TRACK-PBL', name: 'TRACK Port Blair', x: 80, y: 80, labelPosition: 'right' },
 ];
 
 // Defined connections between nodes
@@ -35,6 +36,21 @@ const LINKS = [
   { source: 'ISTRAC-BGL', target: 'TRACK-PBL' },
   { source: 'SDSC-SHAR', target: 'TRACK-PBL' },
 ];
+
+// Helper to get label placement classes based on position
+const getLabelPlacementClass = (pos?: 'left' | 'right' | 'top' | 'bottom') => {
+  switch (pos) {
+    case 'left':
+      return 'right-9 top-1/2 -translate-y-1/2 text-left';
+    case 'top':
+      return 'bottom-9 left-1/2 -translate-x-1/2 text-center';
+    case 'bottom':
+      return 'top-9 left-1/2 -translate-x-1/2 text-center';
+    case 'right':
+    default:
+      return 'left-9 top-1/2 -translate-y-1/2 text-left';
+  }
+};
 
 export const TopologyMap: React.FC<TopologyMapProps> = ({
   telemetryData,
@@ -252,20 +268,22 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
 
               {/* Label */}
               <div
-                className={`absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-mono border glass-panel transition-all duration-200 ${
+                className={`absolute ${getLabelPlacementClass(node.labelPosition)} whitespace-nowrap px-2 py-1 rounded text-[10px] font-mono border glass-panel transition-all duration-300 z-20 ${
                   isSelected
-                    ? 'text-noc-primary border-noc-primary bg-noc-card'
+                    ? 'text-noc-primary border-noc-primary bg-noc-card/95 shadow-glow-cyan scale-105'
                     : !state
                       ? 'text-noc-muted border-noc-border/30 bg-noc-card/40 opacity-60'
                       : isCritical
-                        ? 'text-noc-danger border-noc-danger bg-noc-card/90'
+                        ? 'text-noc-danger border-noc-danger bg-noc-card/95 shadow-glow-danger'
                         : isWarning
-                          ? 'text-noc-warning border-noc-warning bg-noc-card/90'
-                          : 'text-noc-text/80 border-noc-border bg-noc-card/70 group-hover:text-noc-primary group-hover:border-noc-primary'
+                          ? 'text-noc-warning border-noc-warning bg-noc-card/95 shadow-glow-warning'
+                          : 'text-noc-text/80 border-noc-border bg-noc-card/85 group-hover:text-noc-primary group-hover:border-noc-primary group-hover:scale-105 group-hover:shadow-glow-cyan'
                 }`}
               >
-                <div className="font-semibold">{node.name}</div>
-                <div className="flex gap-1.5 items-center mt-0.5 opacity-80 text-[8px]">
+                <div className={`font-semibold ${node.labelPosition === 'top' || node.labelPosition === 'bottom' ? 'text-center' : ''}`}>{node.name}</div>
+                <div className={`flex gap-1.5 items-center mt-0.5 opacity-80 text-[8px] ${
+                  node.labelPosition === 'top' || node.labelPosition === 'bottom' ? 'justify-center' : ''
+                }`}>
                   {!state ? (
                     <span>OFFLINE</span>
                   ) : (
