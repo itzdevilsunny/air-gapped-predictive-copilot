@@ -633,6 +633,9 @@ def get_index() -> TFIDFIndex:
     return _index
 
 
+_query_cache = {}
+
+
 def process_query(query: str, router_context: Optional[str] = None, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     """
     Full RAG pipeline:
@@ -643,6 +646,26 @@ def process_query(query: str, router_context: Optional[str] = None, history: Opt
     5. Try Ollama → fallback to local engine
     6. Return structured response
     """
+    global _query_cache
+    
+    # Check semantic cache first
+    if _query_cache:
+        try:
+            index = get_index()
+            cached_queries = list(_query_cache.keys())
+            vectors = index.vectorizer.transform(cached_queries)
+            q_vector = index.vectorizer.transform([query])
+            similarities = cosine_similarity(q_vector, vectors).flatten()
+            best_idx = similarities.argmax()
+            if similarities[best_idx] > 0.85:
+                matched_query = cached_queries[best_idx]
+                cached_res = _query_cache[matched_query].copy()
+                cached_res["engine"] = cached_res.get("engine", "Unknown") + " (Semantic Cache Hit)"
+                cached_res["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                return cached_res
+        except Exception as e:
+            logger.warning(f"Cache check error: {e}")
+
     # 1. Fetch live telemetry
     telemetry = fetch_live_telemetry()
 
@@ -722,7 +745,7 @@ def process_query(query: str, router_context: Optional[str] = None, history: Opt
         answer = local_engine.generate(query, router, retrieved_docs, telemetry)
 
     # 6. Build structured response
-    return {
+    result = {
         "answer": answer,
         "engine": engine_used,
         "ollama_available": ollama_available,
@@ -739,8 +762,10 @@ def process_query(query: str, router_context: Optional[str] = None, history: Opt
         ],
         "target_router": router["router_id"] if router else None,
         "live_telemetry_count": len(telemetry),
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
+    _query_cache[query] = result
+    return result
 
 
 if __name__ == "__main__":

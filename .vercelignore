@@ -1,0 +1,7 @@
+backend/
+phase1-backend/
+scratch/
+.vscode/
+.git/
+.snapshots/
+sops/

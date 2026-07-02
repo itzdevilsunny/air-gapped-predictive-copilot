@@ -385,19 +385,19 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
             </div>
             
             {/* Right side: Detailed operational instructions */}
-            <div className="flex-1 bg-[#030611]/40 border border-noc-border/20 rounded-lg p-3 overflow-y-auto text-[10px] leading-relaxed font-mono">
+            <div className="flex-grow md:flex-1 bg-[#030611]/40 border border-noc-border/20 rounded-lg p-3 overflow-y-auto text-[10px] leading-relaxed font-mono min-w-0">
               <h4 className="text-[11px] font-display text-noc-warning font-bold uppercase tracking-wider mb-2 border-b border-noc-border/25 pb-1">
                 Air-Gapped RAG Ingestion
               </h4>
-              <p className="text-noc-muted mb-2">
+              <p className="text-noc-muted mb-2 whitespace-normal break-words">
                 This operations center utilizes local Semantic Document Ingestion. When you query the AI Copilot, the backend tf-idf vector database performs a cosine similarity lookup across all files in the database:
               </p>
-              <ul className="list-disc list-inside text-noc-text flex flex-col gap-1 mb-3">
+              <ul className="list-disc list-inside text-noc-text flex flex-col gap-1 mb-3 whitespace-normal break-words">
                 <li>Primary tracking telemetry mapped to DSCP EF priority.</li>
                 <li>Link flapping faults mitigated via secondary routes.</li>
                 <li>Delhi daemons buffer memory leaks cleared with route resets.</li>
               </ul>
-              <p className="text-noc-muted">
+              <p className="text-noc-muted whitespace-normal break-words">
                 You can upload any custom SOP or network layout note here. The system will index it, and subsequent copilot prompts will dynamically retrieve the context.
               </p>
             </div>

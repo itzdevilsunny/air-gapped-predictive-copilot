@@ -69,3 +69,6 @@ influxdb.zip
 scratch/
 injections.json
 generator.log
+
+.vercel
+.env*

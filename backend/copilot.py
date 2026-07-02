@@ -98,6 +98,7 @@ class AirGappedCopilot:
         self.docs = []
         self.doc_texts = []
         self.doc_vectors = None
+        self.cache = {}  # Semantic cache: query -> response_dict
         self.reload_sops()
 
     def check_ollama_available(self) -> tuple:
@@ -110,6 +111,27 @@ class AirGappedCopilot:
             pass
         return False, "Ollama not running"
 
+    def check_cache(self, query: str) -> Optional[dict]:
+        if not self.cache or not self.doc_texts:
+            return None
+        try:
+            cached_queries = list(self.cache.keys())
+            vectors = self.vectorizer.transform(cached_queries)
+            query_vector = self.vectorizer.transform([query])
+            
+            similarities = cosine_similarity(query_vector, vectors).flatten()
+            best_idx = similarities.argmax()
+            if similarities[best_idx] > 0.85:
+                matched_query = cached_queries[best_idx]
+                cached_res = self.cache[matched_query].copy()
+                return {
+                    "answer": cached_res["answer"],
+                    "retrieved_documents": cached_res["retrieved_documents"],
+                    "engine": cached_res["engine"] + " (Semantic Cache Hit)"
+                }
+        except Exception:
+            pass
+        return None
 
     def reload_sops(self):
         docs = []
@@ -141,6 +163,9 @@ class AirGappedCopilot:
                     except Exception as e:
                         print(f"Error loading SOP {filename}: {e}")
                         
+        if not docs:
+            docs = OFFLINE_DOCS.copy()
+            
         self.docs = docs
         if len(self.docs) > 0:
             self.doc_texts = [f"{d['title']}\n{d['content']}" for d in self.docs]
@@ -166,6 +191,10 @@ class AirGappedCopilot:
 
     def query(self, query: str, current_telemetry: dict = None, history: list = None) -> dict:
         """Processes the query, retrieves RAG context, and queries local LLM (or falls back)."""
+        cached_res = self.check_cache(query)
+        if cached_res:
+            return cached_res
+
         retrieved_docs = self.retrieve_context(query)
         context_str = "\n\n".join([f"Source: {d['title']}\nContent: {d['content']}" for d in retrieved_docs])
         
@@ -194,46 +223,51 @@ class AirGappedCopilot:
             f"referencing the SOP documents if applicable, and listing the precise CLI commands or troubleshooting steps to take."
         )
         
+        response_dict = None
+        
         # 1. Try Google Gemini API first
-        if GEMINI_API_KEY:
-            gemini_ans = query_gemini(prompt)
+        if self.GEMINI_API_KEY:
+            gemini_ans = query_gemini(prompt, self.GEMINI_API_KEY)
             if gemini_ans:
-                return {
+                response_dict = {
                     "answer": gemini_ans,
                     "retrieved_documents": retrieved_docs,
                     "engine": "Gemini 2.5 Flash"
                 }
 
         # 2. Try local Ollama if running
-        try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": self.model_name,
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=5.0
-            )
-            if response.status_code == 200:
-                answer = response.json().get("response", "")
-                return {
-                    "answer": answer,
-                    "retrieved_documents": retrieved_docs,
-                    "engine": f"Ollama ({self.model_name})"
-                }
-        except Exception:
-            # Fall back to local high-fidelity generator
-            pass
-            
+        if not response_dict:
+            try:
+                response = requests.post(
+                    f"{self.ollama_url}/api/generate",
+                    json={
+                        "model": self.model_name,
+                        "prompt": prompt,
+                        "stream": False
+                    },
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    answer = response.json().get("response", "")
+                    response_dict = {
+                        "answer": answer,
+                        "retrieved_documents": retrieved_docs,
+                        "engine": f"Ollama ({self.model_name})"
+                    }
+            except Exception:
+                pass
+                
         # 3. High-Fidelity Local Template Generator
-        answer = self._generate_local_fallback(query, retrieved_docs, current_telemetry)
-        
-        return {
-            "answer": answer,
-            "retrieved_documents": retrieved_docs,
-            "engine": "Local Expert Rules (Offline Fallback)"
-        }
+        if not response_dict:
+            answer = self._generate_local_fallback(query, retrieved_docs, current_telemetry)
+            response_dict = {
+                "answer": answer,
+                "retrieved_documents": retrieved_docs,
+                "engine": "Local Expert Rules (Offline Fallback)"
+            }
+            
+        self.cache[query] = response_dict
+        return response_dict
 
     def _generate_local_fallback(self, query: str, retrieved_docs: list, telemetry: dict) -> str:
         q_lower = query.lower()
