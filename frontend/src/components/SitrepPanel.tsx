@@ -1,5 +1,5 @@
-﻿import React, { useMemo, useState, useEffect } from "react";
-import { FileText, GitMerge, Radio, Zap, AlertTriangle, CheckCircle2, TrendingUp, Clock, Target, Cpu, Wifi, Activity } from "lucide-react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { FileText, GitMerge, Radio, CheckCircle2, Cpu, Wifi, Activity } from "lucide-react";
 import type { ActiveAlert, EnrichedHistoryPoint } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ function computeClusters(
       affectedNodes: cpuNodes.map((c) => c.id),
       severity: maxRisk >= 80 ? "critical" : "elevated",
       confidence: cpuNodes.length > 1 ? 88 : 72,
-      pattern: "MULTI-NODE CPU SPIKE" ,
+      pattern: "MULTI-NODE CPU SPIKE",
       recommendation: "Examine process tables. Throttle non-critical services. Check for BGP route oscillation. Consider traffic load-balancing to alternate paths.",
       blastRadius: Math.min(100, cpuNodes.length * 20 + maxRisk / 2),
     });
@@ -389,7 +389,12 @@ const ClusterCard: React.FC<{ cluster: CorrelationCluster; index: number }> = ({
 };
 
 // ── Auto-Typing SITREP Text ────────────────────────────────────────────────────
-const TypedSitrep: React.FC<{ sections: SitrepSection[]; statusColor: string }> = ({
+interface TypedSitrepProps {
+  sections: SitrepSection[];
+  statusColor: string;
+}
+
+const TypedSitrep: React.FC<TypedSitrepProps> = ({
   sections,
   statusColor,
 }) => {
@@ -399,21 +404,24 @@ const TypedSitrep: React.FC<{ sections: SitrepSection[]; statusColor: string }> 
   const [displayed, setDisplayed] = useState("");
   const [done, setDone] = useState(false);
 
+  const fullTextRef = useRef(fullText);
   useEffect(() => {
-    setDisplayed("");
-    setDone(false);
+    fullTextRef.current = fullText;
+  }, [fullText]);
+
+  useEffect(() => {
     let i = 0;
     const interval = setInterval(() => {
-      if (i >= fullText.length) {
+      if (i >= fullTextRef.current.length) {
         setDone(true);
         clearInterval(interval);
         return;
       }
-      setDisplayed(fullText.slice(0, i + 1));
-      i += 3; // type 3 chars at a time for speed
-    }, 12);
+      setDisplayed(fullTextRef.current.slice(0, i + 1));
+      i += 4;
+    }, 10);
     return () => clearInterval(interval);
-  }, [fullText]);
+  }, []);
 
   return (
     <div className="bg-[#020810] border border-[#1e3a5f]/60 rounded-lg p-4 font-mono text-xs leading-relaxed overflow-y-auto max-h-[520px] relative">
@@ -431,7 +439,7 @@ const TypedSitrep: React.FC<{ sections: SitrepSection[]; statusColor: string }> 
         </div>
       </div>
       <pre className="whitespace-pre-wrap text-green-300/90">
-        {displayed}
+        {done ? fullText : displayed}
         {!done && <span className="animate-pulse text-green-400">█</span>}
       </pre>
     </div>
@@ -489,6 +497,10 @@ export const SitrepPanel: React.FC<SitrepPanelProps> = ({
       : "GREEN";
 
   const totalAffected = new Set(clusters.flatMap((c) => c.affectedNodes)).size;
+
+  const alertsHash = useMemo(() => {
+    return alerts.map((a) => `${a.router_id}-${a.risk_score}`).join("|");
+  }, [alerts]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -654,7 +666,7 @@ export const SitrepPanel: React.FC<SitrepPanelProps> = ({
           </h3>
           <span className="text-[10px] text-slate-500 font-mono">(Situational Report — regenerates every 60s)</span>
         </div>
-        <TypedSitrep sections={sitrepSections} statusColor={overallStatus} />
+        <TypedSitrep key={`${overallStatus}-${alertsHash}`} sections={sitrepSections} statusColor={overallStatus} />
       </div>
     </div>
   );
