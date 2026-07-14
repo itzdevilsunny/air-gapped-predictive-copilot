@@ -240,6 +240,34 @@ export const SatelliteMonitor: React.FC<SatelliteMonitorProps> = ({ data, onInje
     return 'ok';
   };
 
+  // ── Handover and LOS Calculations ──────────────────────────────────────────
+  let handoverText = '';
+  let isHandoffActive = false;
+
+  if (cartosat) {
+    const angle = cartosat.orbit_angle;
+    // Check if within 4 degrees of handover boundaries (AOS:60, H1:100, H2:140, LOS:180)
+    isHandoffActive = cartosat.los && [60, 100, 140, 180].some(b => Math.abs(angle - b) <= 2);
+
+    if (cartosat.los && !solarFlare) {
+      if (angle >= 60 && angle < 100) {
+        const remaining = Math.round(100 - angle);
+        handoverText = `Handoff SDSC: ${remaining}s`;
+      } else if (angle >= 100 && angle < 140) {
+        const remaining = Math.round(140 - angle);
+        handoverText = `Handoff PBL: ${remaining}s`;
+      } else if (angle >= 140 && angle <= 180) {
+        const remaining = Math.round(180 - angle);
+        handoverText = `LOS: ${remaining}s`;
+      }
+    } else {
+      const degTo60 = angle > 180 ? (360 - angle) + 60 : 60 - angle;
+      const mins = Math.floor(degTo60 / 60);
+      const secs = Math.round(degTo60 % 60);
+      handoverText = mins > 0 ? `AOS: ${mins}m ${secs}s` : `AOS: ${secs}s`;
+    }
+  }
+
   return (
     <div className="glass-panel rounded-xl border border-slate-800/60 overflow-hidden">
       {/* Header */}
@@ -295,20 +323,35 @@ export const SatelliteMonitor: React.FC<SatelliteMonitorProps> = ({ data, onInje
             {/* Cartosat-3 LEO */}
             {cartosat && (
               <div>
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider">Cartosat-3 (LEO)</span>
-                  {cartosat.los && !solarFlare
-                    ? <span className="text-[8px] text-emerald-400 font-mono border border-emerald-500/30 px-1 rounded bg-emerald-500/10">LOS ✓</span>
-                    : <span className="text-[8px] text-slate-500 font-mono border border-slate-700/50 px-1 rounded">NO SIGNAL</span>}
+                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider">Cartosat-3 (LEO)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {handoverText && (
+                      <span className={`text-[8px] font-mono border px-1 rounded uppercase tracking-wider ${
+                        isHandoffActive 
+                          ? 'text-noc-warning border-noc-warning/40 bg-noc-warning/10 animate-pulse'
+                          : !cartosat.los
+                            ? 'text-noc-muted border-noc-border/40 bg-noc-card/40'
+                            : 'text-noc-primary border-noc-primary/30 bg-noc-primary/5'
+                      }`}>
+                        {handoverText}
+                      </span>
+                    )}
+                    {cartosat.los && !solarFlare
+                      ? <span className="text-[8px] text-emerald-400 font-mono border border-emerald-500/30 px-1 rounded bg-emerald-500/10">LOS ✓</span>
+                      : <span className="text-[8px] text-slate-500 font-mono border border-slate-700/50 px-1 rounded">NO SIGNAL</span>}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   <SatKpiCard
-                    label="SNR"
+                    label={isHandoffActive ? "SNR (FADING)" : "SNR"}
                     value={cartosat.snr.toFixed(1)}
                     unit="dB"
                     icon={<Signal className="w-3 h-3" />}
-                    status={snrStatus(cartosat.snr, cartosat.los)}
+                    status={isHandoffActive ? 'warn' : snrStatus(cartosat.snr, cartosat.los)}
                   />
                   <SatKpiCard
                     label="Altitude"
@@ -319,9 +362,9 @@ export const SatelliteMonitor: React.FC<SatelliteMonitorProps> = ({ data, onInje
                   />
                   <SatKpiCard
                     label="Lock Node"
-                    value={cartosat.lock_node}
+                    value={isHandoffActive ? "HANDOVER..." : cartosat.lock_node}
                     icon={cartosat.los ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    status={cartosat.los && !solarFlare ? 'ok' : 'dead'}
+                    status={isHandoffActive ? 'warn' : (cartosat.los && !solarFlare ? 'ok' : 'dead')}
                   />
                   <SatKpiCard
                     label="Transponder"

@@ -178,15 +178,43 @@ class NetworkSimulator:
         # LEO Satellite: line of sight is active between 60 and 180 degrees
         leo_in_los = 60 <= self.leo_step <= 180
         
+        # Determine Lock Node based on sectors
+        if 60 <= self.leo_step < 100:
+            lock_node = "ISTRAC-BGL"
+        elif 100 <= self.leo_step < 140:
+            lock_node = "SDSC-SHAR"
+        elif 140 <= self.leo_step <= 180:
+            lock_node = "TRACK-PBL"
+        else:
+            lock_node = "NONE"
+
+        # Check for transition disruption (AOS, Handovers, LOS)
+        in_transition = False
+        if leo_in_los:
+            # transitions occur at boundaries 60, 100, 140, 180 (±2 degrees)
+            for boundary in [60, 100, 140, 180]:
+                if abs(self.leo_step - boundary) <= 2:
+                    in_transition = True
+                    break
+
         if self.solar_flare_active:
             leo_snr = 0.0
             geo_snr = 0.0
             leo_loss = 100.0
             geo_loss = 100.0
         else:
-            leo_snr = round(random.uniform(22.5, 27.8), 1) if leo_in_los else 0.0
+            if leo_in_los:
+                if in_transition:
+                    # Simulated signal degradation during handover/AOS/LOS transition
+                    leo_snr = round(random.uniform(10.2, 14.5), 1)
+                    leo_loss = round(random.uniform(8.5, 14.8), 2)
+                else:
+                    leo_snr = round(random.uniform(22.5, 27.8), 1)
+                    leo_loss = round(random.uniform(0.0, 0.5), 2)
+            else:
+                leo_snr = 0.0
+                leo_loss = 100.0
             geo_snr = round(random.uniform(15.2, 17.9), 1)
-            leo_loss = round(random.uniform(0.0, 0.5), 2) if leo_in_los else 100.0
             geo_loss = round(random.uniform(0.1, 0.4), 2)
 
         return {
@@ -201,7 +229,7 @@ class NetworkSimulator:
                     "packet_loss": leo_loss,
                     "temp": round(24.5 + math.cos(math.radians(self.leo_step)) * 6.2, 1),
                     "los": leo_in_los,
-                    "lock_node": "ISTRAC-BGL" if leo_in_los else "NONE",
+                    "lock_node": lock_node,
                     "orbit_angle": self.leo_step
                 },
                 "GSAT-31": {

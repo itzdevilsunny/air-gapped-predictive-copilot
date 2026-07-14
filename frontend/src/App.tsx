@@ -185,6 +185,7 @@ export const App: React.FC = () => {
   const prevAlertIdsRef = useRef<Set<string>>(new Set());
   const prevSolarRef    = useRef(false);
   const healingRouterRef = useRef<string | null>(null);
+  const prevLockNodeRef  = useRef<string>('NONE');
 
   const pushEvent = useCallback((severity: MissionEventSeverity, title: string, detail: string, node?: string) => {
     setMissionEvents(prev => [
@@ -456,16 +457,47 @@ export const App: React.FC = () => {
 
         if (nextSatellites['Cartosat-3']) {
           const sat = nextSatellites['Cartosat-3'];
-          const nextAngle = (sat.orbit_angle + 1) % 360;
-          const los = nextAngle >= 0 && nextAngle <= 180;
+          // LEO orbital step (moves by 2 degrees per 2s simulation step to match backend speed)
+          const nextAngle = (sat.orbit_angle + 2) % 360;
+          const los = nextAngle >= 60 && nextAngle <= 180;
+          
+          // Sector lock node calculations
+          let lock_node = 'NONE';
+          if (nextAngle >= 60 && nextAngle < 100) {
+            lock_node = 'ISTRAC-BGL';
+          } else if (nextAngle >= 100 && nextAngle < 140) {
+            lock_node = 'SDSC-SHAR';
+          } else if (nextAngle >= 140 && nextAngle <= 180) {
+            lock_node = 'TRACK-PBL';
+          }
+
+          // Handover/AOS/LOS transition check
+          const in_transition = los && [60, 100, 140, 180].some(b => Math.abs(nextAngle - b) <= 2);
+          
+          let snr = 0.0;
+          let packet_loss = 100.0;
+          
+          if (los && !solarFlare) {
+            if (in_transition) {
+              snr = 11.5 + (Math.random() - 0.5) * 1.5;
+              packet_loss = 9.2 + Math.random() * 3.5;
+            } else {
+              snr = Math.max(22, Math.min(32, sat.snr + (Math.random() - 0.5) * 2));
+              packet_loss = Math.max(0, Math.min(1.5, sat.packet_loss + (Math.random() - 0.5) * 0.1));
+            }
+          }
+
           nextSatellites['Cartosat-3'] = {
             ...sat,
             orbit_angle: nextAngle,
             los,
-            snr: los ? Math.max(10, Math.min(32, sat.snr + (Math.random() - 0.5) * 2)) : 0,
+            lock_node,
+            snr,
+            packet_loss,
             temp: Math.max(15, Math.min(45, sat.temp + (Math.random() - 0.5) * 1.5))
           };
         }
+
 
         if (nextSatellites['GSAT-31']) {
           const sat = nextSatellites['GSAT-31'];
@@ -867,6 +899,34 @@ export const App: React.FC = () => {
     }
     prevSolarRef.current = isSolar;
   }, [satelliteData?.solar_flare, pushEvent]);
+
+  const cartosatLockNode = satelliteData?.satellites?.['Cartosat-3']?.lock_node || 'NONE';
+
+  // ── Event logging: Handover & Signal AOS/LOS ────────────────────────────────
+  useEffect(() => {
+    const currentLock = cartosatLockNode;
+    const wasLos = prevLockNodeRef.current === 'NONE';
+    const isLos = currentLock === 'NONE';
+
+    if (currentLock !== prevLockNodeRef.current) {
+      if (wasLos && !isLos) {
+        pushEvent('success', 'SATELLITE AOS: Cartosat-3 locked', `Establish connection with station: ${currentLock}`);
+      } else if (!wasLos && isLos) {
+        pushEvent('warning', 'SATELLITE LOS: Cartosat-3 lost signal', 'LEO transponder entered earth shadow sector. Telemetry down.');
+      } else if (!wasLos && !isLos) {
+        pushEvent('info', `HANDOVER INITIATED: Cartosat-3`, `Re-routing transponder signal from ${prevLockNodeRef.current} to ${currentLock}`);
+        
+        // Log a successful transition completion slightly later for realism
+        const prevStation = prevLockNodeRef.current;
+        const nextStation = currentLock;
+        setTimeout(() => {
+          pushEvent('success', `HANDOVER COMPLETED: Cartosat-3`, `Link successfully routed to ${nextStation} from ${prevStation}`);
+        }, 2000);
+      }
+      prevLockNodeRef.current = currentLock;
+    }
+  }, [cartosatLockNode, pushEvent]);
+
 
   // ── Event logging: Initial boot ───────────────────────────────────────────
   const bootLoggedRef = useRef(false);
