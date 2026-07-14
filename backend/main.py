@@ -140,12 +140,73 @@ def compute_step_telemetry():
 auto_heal_enabled = True
 auto_heal_timers: Dict[str, int] = {}  # router_id -> steps remaining
 
+def sync_telemetry_to_supabase(enriched_data: dict):
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/telemetry_snapshots"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        payload = []
+        for rid, node in enriched_data.items():
+            t = node["telemetry"]
+            a = node["analysis"]
+            payload.append({
+                "router_id": rid,
+                "router_name": t["router_name"],
+                "cpu": float(t["cpu"]),
+                "latency": float(t["latency"]),
+                "packet_loss": float(t["packet_loss"]),
+                "jitter": float(t["jitter"]),
+                "bandwidth": float(t["bandwidth"]),
+                "link_status": int(t["link_status"]),
+                "failure_risk": float(a["failure_risk"]),
+                "is_anomaly": bool(a["is_anomaly"])
+            })
+        resp = requests.post(url, headers=headers, json=payload, timeout=3.0)
+        if resp.status_code not in [200, 201]:
+            logger.debug(f"[Supabase Sync] Failed to sync telemetry: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        logger.debug(f"[Supabase Sync] Telemetry sync error: {e}")
+
+def sync_mitigation_to_supabase(router_id: str, router_name: str):
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/mitigation_logs"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "router_id": router_id,
+            "router_name": router_name,
+            "status": "restored",
+            "action_taken": "automated CLI mitigation script applied"
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=3.0)
+        if resp.status_code not in [200, 201]:
+            logger.debug(f"[Supabase Sync] Failed to sync mitigation: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        logger.debug(f"[Supabase Sync] Mitigation sync error: {e}")
+
 async def broadcast_telemetry():
     global auto_heal_timers
     while True:
         try:
             # Offload heavy CPU-bound prediction to a thread pool to avoid blocking the event loop
             step_data, enriched_data, active_alerts = await asyncio.to_thread(compute_step_telemetry)
+            
+            # Async sync to Supabase in separate thread to prevent blocking
+            asyncio.create_task(asyncio.to_thread(sync_telemetry_to_supabase, enriched_data))
             
             # Symmetrically update in-memory cache safely on the main thread
             for rid, latest_telemetry in step_data.items():
@@ -206,11 +267,15 @@ async def broadcast_telemetry():
                         # Remove from timers
                         del auto_heal_timers[rid]
 
+                        # Async sync mitigation event to Supabase
+                        rname = ROUTERS.get(rid, rid)
+                        asyncio.create_task(asyncio.to_thread(sync_mitigation_to_supabase, rid, rname))
+
                         # Broadcast specific event packet so frontend logs timeline entry
                         await manager.broadcast({
                             "type": "auto_heal_trigger",
                             "router_id": rid,
-                            "router_name": ROUTERS.get(rid, rid)
+                            "router_name": rname
                         })
 
             # Fetch dynamic satellite telemetry
