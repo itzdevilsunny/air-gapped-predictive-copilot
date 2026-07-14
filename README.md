@@ -344,4 +344,4 @@ MIT License — Built for ISRO Smart India Hackathon 2025
 
 ---
 
-*Built with ❤️ by Team — Autonomous AI-driven Network Operations for India's Space Programme*
+*Built with ❤️ by Team —**HackOps Crew***
