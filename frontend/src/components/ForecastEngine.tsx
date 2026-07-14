@@ -1,9 +1,9 @@
-﻿import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, ReferenceLine, Tooltip,
 } from "recharts";
-import { TrendingUp, AlertTriangle, Clock, CheckCircle2, Zap } from "lucide-react";
+import { TrendingUp, AlertTriangle, Clock, CheckCircle2, Zap, RefreshCw } from "lucide-react";
 import type { EnrichedHistoryPoint } from "../types";
 
 interface RouterForecast {
@@ -126,6 +126,192 @@ const ForecastCard: React.FC<{ fc: RouterForecast; isTop?: boolean }> = ({ fc, i
   );
 };
 
+// ── Bandwidth Heatmap Component ───────────────────────────────────────────────
+interface DownlinkEvent {
+  id: string;
+  satName: string;
+  stationId: string;
+  startHour: number;
+  duration: number;
+  load: number;
+}
+
+const INITIAL_EVENTS: DownlinkEvent[] = [
+  { id: "ev1", satName: "GSAT-30 Telemetry Dump", stationId: "MCF-HSN", startHour: 13, duration: 3, load: 75 },
+  { id: "ev2", satName: "CARTOSAT-3 Imaging Download", stationId: "ISTRAC-BGL", startHour: 10, duration: 2, load: 80 },
+  { id: "ev3", satName: "RISAT-2B Radar Scan Sync", stationId: "TRACK-PBL", startHour: 15, duration: 2, load: 70 },
+  { id: "ev4", satName: "OCEANSAT-3 Sea-surface Data", stationId: "SDSC-SHAR", startHour: 10, duration: 3, load: 65 }
+];
+
+const STATIONS_LIST = ["NOC-DEL", "NOC-MUM", "MCF-HSN", "ISTRAC-BGL", "SDSC-SHAR", "TRACK-PBL"];
+
+const BandwidthHeatmap: React.FC = () => {
+  const [events, setEvents] = useState<DownlinkEvent[]>(INITIAL_EVENTS);
+  const [selectedEventId, setSelectedEventId] = useState<string>("ev1");
+  const [newHour, setNewHour] = useState<number>(18);
+  const [selectedCell, setSelectedCell] = useState<{ station: string; hour: number; load: number } | null>(null);
+
+  const loadGrid = useMemo(() => {
+    const grid: Record<string, number[]> = {};
+    STATIONS_LIST.forEach(st => {
+      grid[st] = Array(24).fill(0).map((_, h) => {
+        const base = 8 + Math.sin(h * 0.4) * 4 + (h % 3 === 0 ? 5 : 0);
+        return Math.round(base);
+      });
+    });
+
+    events.forEach(ev => {
+      const station = ev.stationId;
+      if (grid[station]) {
+        for (let i = 0; i < ev.duration; i++) {
+          const hr = (ev.startHour + i) % 24;
+          grid[station][hr] += ev.load;
+        }
+      }
+    });
+
+    return grid;
+  }, [events]);
+
+  const handleReschedule = () => {
+    setEvents(prev => prev.map(ev => {
+      if (ev.id === selectedEventId) {
+        return { ...ev, startHour: newHour };
+      }
+      return ev;
+    }));
+    setSelectedCell(null);
+  };
+
+  const getCellColor = (load: number) => {
+    if (load >= 75) return "bg-red-500/80 border-red-500/30 text-white shadow-[inset_0_0_8px_rgba(239,68,68,0.5)]";
+    if (load >= 50) return "bg-amber-500/70 border-amber-500/20 text-slate-900";
+    return "bg-emerald-500/20 border-emerald-500/10 text-emerald-400";
+  };
+
+  return (
+    <div className="bg-[#0a1428] border border-[#1e3a5f]/60 rounded-xl p-5 mt-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between pb-2 border-b border-[#1e3a5f]/40">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-purple-400" />
+          <span className="text-xs font-mono font-bold text-purple-300 uppercase tracking-widest">
+            24-Hour Bandwidth Traffic Heatmap &amp; Downlink Planner
+          </span>
+        </div>
+        <span className="text-[10px] text-slate-500 font-mono">Pre-emptive Congestion Avoidance Deck</span>
+      </div>
+
+      <p className="text-[11px] font-mono text-slate-400 leading-relaxed max-w-2xl">
+        Predicts total network bandwidth (Mbps) across ISRO ground segments. **Red cells** indicate bandwidth saturation exceeding the 75 Mbps threshold due to overlapping telemetry schedules. Use the scheduler below to reschedule orbits and resolve link congestions.
+      </p>
+
+      {/* Heatmap Grid */}
+      <div className="flex flex-col gap-1 overflow-x-auto pb-2">
+        {/* Hours Header */}
+        <div className="flex items-center gap-1 min-w-[760px]">
+          <div className="w-24 shrink-0 font-mono text-[9px] text-slate-500 text-right pr-2">STATION / HOUR</div>
+          {Array(24).fill(0).map((_, h) => (
+            <div key={h} className="flex-1 text-center font-mono text-[9px] text-slate-500">
+              {h.toString().padStart(2, "0")}h
+            </div>
+          ))}
+        </div>
+
+        {/* Stations Rows */}
+        {STATIONS_LIST.map(station => (
+          <div key={station} className="flex items-center gap-1 min-w-[760px]">
+            <div className="w-24 shrink-0 font-mono text-[10px] text-slate-300 font-bold text-right pr-2 truncate">
+              {station}
+            </div>
+            {loadGrid[station].map((load, h) => (
+              <button
+                key={h}
+                onClick={() => setSelectedCell({ station, hour: h, load })}
+                className={`flex-1 h-6 rounded border transition-all hover:scale-105 font-mono text-[8px] flex items-center justify-center ${getCellColor(load)}`}
+              >
+                {load}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Legend & Selected Cell Status */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-[10.5px] font-mono">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3.5 h-3.5 rounded bg-emerald-500/20 border border-emerald-500/30" />
+            <span className="text-slate-400">&lt;50 Mbps (Nominal)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3.5 h-3.5 rounded bg-amber-500/70 border border-amber-500/40" />
+            <span className="text-slate-400">50-74 Mbps (High Load)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3.5 h-3.5 rounded bg-red-500/80 border border-red-500/50 shadow-[0_0_8px_rgba(239,68,68,0.3)]" />
+            <span className="text-red-400 font-bold">&gt;=75 Mbps (CONGESTED)</span>
+          </div>
+        </div>
+
+        {selectedCell && (
+          <div className="bg-[#050c18] border border-[#1e3a5f]/40 rounded px-3 py-1 text-cyan-300">
+            Selected: <span className="font-bold text-white">{selectedCell.station}</span> at <span className="font-bold text-white">{selectedCell.hour.toString().padStart(2, "0")}:00</span> — Load: <span className="font-bold text-white">{selectedCell.load} Mbps</span>
+          </div>
+        )}
+      </div>
+
+      {/* Scheduler Form */}
+      <div className="bg-[#030611] border border-[#1e3a5f]/40 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-end mt-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+            Select Downlink Event
+          </label>
+          <select
+            value={selectedEventId}
+            onChange={(e) => {
+              setSelectedEventId(e.target.value);
+              const ev = events.find(x => x.id === e.target.value);
+              if (ev) setNewHour(ev.startHour);
+            }}
+            className="bg-[#050c18] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-purple-500"
+          >
+            {events.map(ev => (
+              <option key={ev.id} value={ev.id}>
+                {ev.satName} ({ev.stationId}) - Start: {ev.startHour}:00 ({ev.load} Mbps)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+            Reschedule Start Hour
+          </label>
+          <select
+            value={newHour}
+            onChange={(e) => setNewHour(parseInt(e.target.value))}
+            className="bg-[#050c18] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-purple-500"
+          >
+            {Array(24).fill(0).map((_, h) => (
+              <option key={h} value={h}>
+                {h.toString().padStart(2, "0")}:00
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          onClick={handleReschedule}
+          className="bg-purple-500 hover:bg-purple-600 text-white font-mono font-black text-xs py-2 px-4 rounded transition-colors shadow-[0_0_12px_rgba(168,85,247,0.2)] flex items-center justify-center gap-1.5 uppercase h-[32px]"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Reschedule Downlink</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface ForecastEngineProps {
   routerHistory: Record<string, EnrichedHistoryPoint[]>;
   routerNames: Record<string, string>;
@@ -202,6 +388,9 @@ export const ForecastEngine: React.FC<ForecastEngineProps> = ({ routerHistory, r
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {forecasts.map((fc, i) => <ForecastCard key={fc.routerId} fc={fc} isTop={i === 0 && fc.forecastedRisk30m >= 70} />)}
       </div>
+
+      {/* ── Bandwidth Payload Heatmap & Pre-emptive Scheduler ───────────────── */}
+      <BandwidthHeatmap />
     </div>
   );
 };
