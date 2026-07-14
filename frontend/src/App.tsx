@@ -28,7 +28,9 @@ import {
   Sun,
   ShieldAlert,
   CheckCircle2,
-  Timer
+  Timer,
+  Mic,
+  MicOff
 } from 'lucide-react';
 
 // ─── Mission Mode ─────────────────────────────────────────────────────────────
@@ -182,6 +184,10 @@ export const App: React.FC = () => {
   
   // ── Closed-Loop Orchestration Config ──────────────────────────────────────
   const [autoHealEnabled, setAutoHealEnabled] = useState(true);
+  const [voiceListening, setVoiceListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+
 
 
   // ── Feature 1: Mission Timeline ───────────────────────────────────────────
@@ -351,7 +357,7 @@ export const App: React.FC = () => {
     fetchConfig();
   }, [isMockMode]);
 
-  const toggleAutoHeal = async () => {
+  const toggleAutoHeal = useCallback(async () => {
     const nextVal = !autoHealEnabled;
     setAutoHealEnabled(nextVal);
     
@@ -371,7 +377,10 @@ export const App: React.FC = () => {
       console.error('Failed to save config:', err);
       setAutoHealEnabled(!nextVal); // revert
     }
-  };
+  }, [autoHealEnabled, isMockMode, pushEvent]);
+
+
+
 
   useEffect(() => {
     if (!isMockMode) return;
@@ -717,14 +726,14 @@ export const App: React.FC = () => {
     };
   }, [isMockMode]);
 
-  const handleTabNavigate = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6') => {
+  const handleTabNavigate = useCallback((tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6') => {
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
     window.history.pushState({}, '', url);
     setActiveTab(tab);
     if (tab === 'overview') {
       setIsSimOpen(true);
     }
-  };
+  }, []);
 
   const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6', e: React.MouseEvent) => {
     e.preventDefault();
@@ -743,7 +752,7 @@ export const App: React.FC = () => {
   }, []);
 
   // Fetch initial history for a selected router to populate the charts
-  const fetchRouterHistory = async (routerId: string) => {
+  const fetchRouterHistory = useCallback(async (routerId: string) => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/router/${routerId}/history`);
       if (res.ok) {
@@ -756,7 +765,7 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error(`Error fetching history for ${routerId}:`, err);
     }
-  };
+  }, [setRouterHistory]);
 
   // Pre-fetch all routers history on load
   useEffect(() => {
@@ -777,7 +786,7 @@ export const App: React.FC = () => {
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [selectedRouterId]);
+  }, [selectedRouterId, fetchRouterHistory]);
 
   // Establish WebSocket telemetry stream
   useEffect(() => {
@@ -1044,7 +1053,7 @@ export const App: React.FC = () => {
   }, [telemetryData, pushEvent]);
 
   // REST trigger: Self-healing mitigation
-  const handleMitigate = async (routerId: string) => {
+  const handleMitigate = useCallback(async (routerId: string) => {
     if (isMockMode) {
       // Mock mitigation
       setTelemetryData(prev => {
@@ -1106,7 +1115,172 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error(`Mitigation failed on ${routerId}:`, err);
     }
-  };
+  }, [isMockMode, pushEvent, fetchRouterHistory]);
+
+  // ── Speech Synthesis: Verbal Feedback ─────────────────────────────────────
+  const speakPhrase = useCallback((text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.pitch = 0.95;
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) ||
+                         voices.find(v => v.lang.startsWith('en'));
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+    }
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // ── Speech Recognition: Vocal Command Parser ──────────────────────────────
+  const handleVoiceCommand = useCallback((transcript: string) => {
+    const text = transcript.toLowerCase().trim();
+    console.log('Voice Command:', text);
+
+    // Tab Navigation commands
+    if (text.includes('show topology') || text.includes('show dashboard') || text.includes('go to topology')) {
+      handleTabNavigate('all');
+      speakPhrase('Navigating to telemetry topology grid.');
+      pushEvent('info', 'VOICE ASSISTANT', 'Command: Show Topology Grid');
+      return;
+    }
+    if (text.includes('show phase one') || text.includes('go to phase one') || text.includes('show engine')) {
+      handleTabNavigate('ph1');
+      speakPhrase('Displaying primary engine analytics.');
+      pushEvent('info', 'VOICE ASSISTANT', 'Command: Navigate to Engine');
+      return;
+    }
+    if (text.includes('show self heal') || text.includes('go to self heal') || text.includes('show phase six') || text.includes('go to phase six')) {
+      handleTabNavigate('ph6');
+      speakPhrase('Opening closed-loop automation portal.');
+      pushEvent('info', 'VOICE ASSISTANT', 'Command: Navigate to Closed-loop');
+      return;
+    }
+
+    // Toggle Automation
+    if (text.includes('toggle auto heal') || text.includes('toggle automation') || text.includes('toggle closed loop')) {
+      toggleAutoHeal();
+      speakPhrase('Toggling closed-loop automation mode.');
+      pushEvent('info', 'VOICE ASSISTANT', 'Command: Toggle Auto-Heal Mode');
+      return;
+    }
+
+    // Solar Storm Active
+    if (text.includes('solar flare') || text.includes('solar storm')) {
+      const active = text.includes('active') || text.includes('inject') || text.includes('start') || text.includes('trigger');
+      const cease = text.includes('cease') || text.includes('stop') || text.includes('clear');
+      
+      if (active || cease) {
+        const nextState = active;
+        if (isMockMode) {
+          setSatelliteData(prev => {
+            if (!prev) return null;
+            return { ...prev, solar_flare: nextState };
+          });
+        } else {
+          fetch(`${BACKEND_URL}/api/simulate-solar-flare`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: nextState })
+          }).catch(console.error);
+        }
+        speakPhrase(nextState ? 'Solar flare simulation activated.' : 'Solar storm ceased.');
+        pushEvent('info', 'VOICE ASSISTANT', `Command: Solar Storm ${nextState ? 'Active' : 'Ceased'}`);
+        return;
+      }
+    }
+
+    // Health Query
+    if (text.includes('health status') || text.includes('grid health') || text.includes('what is health') || text.includes('what is grid health')) {
+      speakPhrase(`Grid composite health is ${healthScore} percent.`);
+      pushEvent('info', 'VOICE ASSISTANT', 'Query: Grid Health Check');
+      return;
+    }
+
+    // Node Risk Query
+    const matchRisk = text.match(/(?:risk of|risk status of|risk for)\s+([a-z0-9\s-]+)/);
+    if (matchRisk && matchRisk[1]) {
+      const queryNode = matchRisk[1].replace(/[-_]/g, ' ');
+      const foundEntry = Object.entries(telemetryData).find(([rid, node]) => {
+        return rid.toLowerCase().includes(queryNode) || node.telemetry.router_name.toLowerCase().includes(queryNode);
+      });
+      if (foundEntry) {
+        const [, node] = foundEntry;
+        speakPhrase(`${node.telemetry.router_name} is reporting ${node.analysis.failure_risk} percent failure risk.`);
+        pushEvent('info', 'VOICE ASSISTANT', `Query: Telemetry risk on ${node.telemetry.router_name}`);
+        return;
+      }
+    }
+
+    // Mitigate Router Command
+    if (text.includes('mitigate') || text.includes('heal')) {
+      const queryNode = text.replace('mitigate', '').replace('heal', '').trim();
+      const foundEntry = Object.entries(telemetryData).find(([rid, node]) => {
+        return rid.toLowerCase().includes(queryNode) || node.telemetry.router_name.toLowerCase().includes(queryNode);
+      });
+      if (foundEntry) {
+        const [rid, node] = foundEntry;
+        handleMitigate(rid);
+        speakPhrase(`Mitigation started for ${node.telemetry.router_name}.`);
+        pushEvent('info', 'VOICE ASSISTANT', `Command: Mitigate ${rid}`);
+        return;
+      }
+    }
+
+    // Unknown command
+    speakPhrase('Vocal command not recognised. Please repeat.');
+    pushEvent('warning', 'VOICE ASSISTANT', `Unknown vocal query: "${transcript}"`);
+  }, [telemetryData, healthScore, isMockMode, toggleAutoHeal, handleMitigate, pushEvent, speakPhrase, handleTabNavigate]);
+
+  // ── Speech Recognition: Assistant Controller ─────────────────────────────
+  const toggleVoiceAssistant = useCallback(() => {
+    if (voiceListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setVoiceListening(false);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SR) {
+        alert('Web Speech API is not supported in this browser. Please use Chrome or Edge.');
+        return;
+      }
+      
+      const rec = new SR();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setVoiceListening(true);
+        speakPhrase('Chitthi assistant active. Listening for command.');
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rec.onresult = (e: any) => {
+        const transcriptText = e.results[0][0].transcript;
+        handleVoiceCommand(transcriptText);
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rec.onerror = (e: any) => {
+        console.error('Speech recognition error:', e.error);
+        setVoiceListening(false);
+        if (e.error === 'not-allowed') {
+          alert('Microphone permission denied. Please allow mic access in your browser settings.');
+        }
+      };
+
+      rec.onend = () => {
+        setVoiceListening(false);
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+    }
+  }, [voiceListening, handleVoiceCommand, speakPhrase]);
 
   // REST trigger: Copilot NLP Query
   const handleSendCopilotQuery = async (query: string, routerId: string | null, history: ChatMessage[]) => {
@@ -1253,6 +1427,25 @@ export const App: React.FC = () => {
             >
               <Shield className={`w-3.5 h-3.5 ${autoHealEnabled ? 'text-noc-success animate-bounce' : 'text-noc-muted'}`} style={{ animationDuration: '3s' }} />
               <span>AUTO-HEAL: {autoHealEnabled ? 'CLOSED-LOOP' : 'MANUAL'}</span>
+            </button>
+
+            {/* ── Chitthi Voice Operations Deck ─────────────────────────── */}
+            <button
+              id="chitthi-mic-btn"
+              onClick={toggleVoiceAssistant}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition-all duration-300 font-bold ${
+                voiceListening
+                  ? 'text-noc-warning bg-noc-warning/15 border-noc-warning/50 shadow-[0_0_12px_rgba(251,191,36,0.4)] animate-pulse'
+                  : 'text-noc-muted bg-noc-card border-noc-border hover:bg-noc-border hover:text-noc-text'
+              }`}
+              title="Chitthi — AI Voice Operations Deck. Click to activate hands-free voice commands."
+            >
+              {voiceListening ? (
+                <MicOff className="w-3.5 h-3.5 text-noc-warning" />
+              ) : (
+                <Mic className="w-3.5 h-3.5" />
+              )}
+              <span>CHITTHI: {voiceListening ? 'LISTENING…' : 'VOICE'}</span>
             </button>
 
             {isMockMode ? (
