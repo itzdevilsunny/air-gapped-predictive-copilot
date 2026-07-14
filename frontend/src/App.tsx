@@ -18,6 +18,7 @@ import { ForecastEngine } from './components/ForecastEngine';
 import { SitrepPanel } from './components/SitrepPanel';
 import { BigBoard } from './components/BigBoard';
 import { PlaybookExecutor } from './components/PlaybookExecutor';
+import { AnomalyScatterPlot } from './components/AnomalyScatterPlot';
 import { 
   Radio, 
   Wifi, 
@@ -1764,13 +1765,21 @@ export const App: React.FC = () => {
                 />
 
                 {(activeTab === 'all' || activeTab === 'anomalies' || activeTab === 'selfheal') && (
-                  <div className={activeTab === 'selfheal' ? 'border border-noc-success/40 shadow-glow-green rounded-xl transition-all duration-500' : ''}>
-                    <AlertsPanel 
-                      alerts={alerts}
-                      telemetryData={telemetryData}
-                      onMitigate={handleMitigate}
-                    />
-                  </div>
+                  <>
+                    <div className={activeTab === 'selfheal' ? 'border border-noc-success/40 shadow-glow-green rounded-xl transition-all duration-500' : ''}>
+                      <AlertsPanel 
+                        alerts={alerts}
+                        telemetryData={telemetryData}
+                        onMitigate={handleMitigate}
+                      />
+                    </div>
+                    {activeTab === 'anomalies' && (
+                      <AnomalyScatterPlot
+                        telemetryData={telemetryData as Parameters<typeof AnomalyScatterPlot>[0]['telemetryData']}
+                        routerHistory={routerHistory}
+                      />
+                    )}
+                  </>
                 )}
 
                 {(activeTab === 'all' || activeTab === 'overview') && (
