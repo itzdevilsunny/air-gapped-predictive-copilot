@@ -17,6 +17,7 @@ import { HealthGauge } from './components/HealthGauge';
 import { ForecastEngine } from './components/ForecastEngine';
 import { SitrepPanel } from './components/SitrepPanel';
 import { BigBoard } from './components/BigBoard';
+import { PlaybookExecutor } from './components/PlaybookExecutor';
 import { 
   Radio, 
   Wifi, 
@@ -297,7 +298,7 @@ export const App: React.FC = () => {
   const modeCfg = MISSION_MODE_CONFIG[missionMode];
 
   // Tab/Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard'>(() => {
+  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard' | 'playbooks'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam === 'overview') return 'overview';
@@ -311,6 +312,7 @@ export const App: React.FC = () => {
     if (tabParam === 'forecast') return 'forecast';
     if (tabParam === 'sitrep') return 'sitrep';
     if (tabParam === 'bigboard') return 'bigboard';
+    if (tabParam === 'playbooks') return 'playbooks';
     return 'all';
   });
 
@@ -329,6 +331,7 @@ export const App: React.FC = () => {
       else if (tabParam === 'forecast') setActiveTab('forecast');
       else if (tabParam === 'sitrep') setActiveTab('sitrep');
       else if (tabParam === 'bigboard') setActiveTab('bigboard');
+      else if (tabParam === 'playbooks') setActiveTab('playbooks');
       else setActiveTab('all');
     };
     window.addEventListener('popstate', handleLocationChange);
@@ -735,7 +738,7 @@ export const App: React.FC = () => {
     };
   }, [isMockMode]);
 
-  const handleTabNavigate = useCallback((tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard') => {
+  const handleTabNavigate = useCallback((tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard' | 'playbooks') => {
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
     window.history.pushState({}, '', url);
     setActiveTab(tab);
@@ -744,7 +747,7 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard', e: React.MouseEvent) => {
+  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast' | 'sitrep' | 'bigboard' | 'playbooks', e: React.MouseEvent) => {
     e.preventDefault();
     handleTabNavigate(tab);
   };
@@ -1542,6 +1545,18 @@ export const App: React.FC = () => {
             >
               📺 BIG BOARD
             </button>
+            <span className="text-noc-border px-1">|</span>
+            <button
+              id="tab-playbooks"
+              onClick={(e) => handleTabClick('playbooks', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+                activeTab === 'playbooks'
+                  ? 'bg-amber-500/25 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                  : 'hover:bg-amber-500/20 text-amber-400/70 hover:text-amber-300'
+              }`}
+            >
+              🛠️ PLAYBOOKS
+            </button>
           </div>
 
           {/* Trigger Failure Injection Deck */}
@@ -1706,6 +1721,20 @@ export const App: React.FC = () => {
               utcTime={utcTime}
               isMockMode={isMockMode}
               healActive={healActive}
+            />
+          </div>
+        ) : activeTab === 'playbooks' ? (
+          <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-amber-500/20 rounded-xl p-5 glass-panel min-h-[500px] overflow-y-auto">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-1.5 h-6 bg-amber-400 rounded-full" />
+              <div>
+                <h3 className="text-sm font-mono font-black text-amber-300 uppercase tracking-widest">🛠️ INTERACTIVE DIAGNOSTIC PLAYBOOK EXECUTOR</h3>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Execute network diagnostic CLI workflows and apply dynamic config mitigations on ground station nodes</p>
+              </div>
+            </div>
+            <PlaybookExecutor
+              telemetryData={telemetryData as Parameters<typeof PlaybookExecutor>[0]['telemetryData']}
+              onMitigate={handleMitigate}
             />
           </div>
         ) : activeTab === 'copilot' ? (
