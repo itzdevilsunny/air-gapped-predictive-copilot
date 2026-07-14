@@ -110,83 +110,76 @@ export const TopologyMap: React.FC<TopologyMapProps> = ({
             </filter>
           </defs>
 
-          {/* Draw Connection Links */}
+          {/* Draw Connection Links with Particle Flow */}
           {LINKS.map((link, idx) => {
             const sourceNode = NODES.find(n => n.id === link.source);
             const targetNode = NODES.find(n => n.id === link.target);
             if (!sourceNode || !targetNode) return null;
 
-            // Fetch status of endpoints to style the link
             const sourceState = telemetryData[sourceNode.id];
             const targetState = telemetryData[targetNode.id];
 
             const sourceHealth = sourceState?.telemetry.link_status === 0 || sourceState?.analysis.failure_risk > 80 ? 'danger' : sourceState?.analysis.failure_risk > 40 || sourceState?.analysis.is_anomaly ? 'warning' : 'healthy';
             const targetHealth = targetState?.telemetry.link_status === 0 || targetState?.analysis.failure_risk > 80 ? 'danger' : targetState?.analysis.failure_risk > 40 || targetState?.analysis.is_anomaly ? 'warning' : 'healthy';
 
-            let linkColor = 'stroke-noc-primary/20';
-            let flowColor = '#38bdf8';
-            let isDown = false;
+            const isDanger  = sourceHealth === 'danger' || targetHealth === 'danger';
+            const isWarning = sourceHealth === 'warning' || targetHealth === 'warning';
+            const isDown    = isDanger && (sourceState?.telemetry.link_status === 0 || targetState?.telemetry.link_status === 0);
+            const strokeColor   = isDanger ? 'rgba(244,63,94,0.35)' : isWarning ? 'rgba(245,158,11,0.35)' : 'rgba(56,189,248,0.18)';
+            const particleColor = isDanger ? '#f43f5e' : isWarning ? '#f59e0b' : '#38bdf8';
 
-            if (sourceHealth === 'danger' || targetHealth === 'danger') {
-              linkColor = 'stroke-noc-danger/40';
-              flowColor = '#f43f5e';
-              if (sourceState?.telemetry.link_status === 0 || targetState?.telemetry.link_status === 0) {
-                isDown = true;
-              }
-            } else if (sourceHealth === 'warning' || targetHealth === 'warning') {
-              linkColor = 'stroke-noc-warning/40';
-              flowColor = '#f59e0b';
-            }
+            // Bandwidth-based animation speed: higher bw = faster particles
+            const avgBw = ((sourceState?.telemetry.bandwidth || 500) + (targetState?.telemetry.bandwidth || 500)) / 2;
+            const duration = Math.max(1.2, 5 - (avgBw / 250)); // 1.2s–5s range
 
-            const x1 = `${sourceNode.x}%`;
-            const y1 = `${sourceNode.y}%`;
-            const x2 = `${targetNode.x}%`;
-            const y2 = `${targetNode.y}%`;
+            const x1 = sourceNode.x;
+            const y1 = sourceNode.y;
+            const x2 = targetNode.x;
+            const y2 = targetNode.y;
+            const pathId = `path-${idx}`;
 
             return (
               <g key={`link-${idx}`}>
-                {/* Main link line */}
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  className={`transition-all duration-500 ${linkColor}`}
-                  strokeWidth={isDown ? "1.5" : "2"}
-                  strokeDasharray={isDown ? "4,4" : undefined}
-                />
-                
-                {/* Animated active traffic flows */}
-                {!isDown && (
-                  <line
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
-                    stroke={flowColor}
-                    strokeWidth="1.5"
-                    strokeDasharray="8, 25"
-                    className="animate-flow"
-                    style={{
-                      strokeDashoffset: 100,
-                      animation: 'flow-animation 4s linear infinite',
-                    }}
-                    filter="url(#neon-glow)"
+                <defs>
+                  <path
+                    id={pathId}
+                    d={`M ${x1}% ${y1}% L ${x2}% ${y2}%`}
                   />
-                )}
+                </defs>
+
+                {/* Base link line */}
+                <line
+                  x1={`${x1}%`} y1={`${y1}%`}
+                  x2={`${x2}%`} y2={`${y2}%`}
+                  stroke={isDown ? 'rgba(244,63,94,0.25)' : strokeColor}
+                  strokeWidth={isDown ? '1' : '1.5'}
+                  strokeDasharray={isDown ? '4,5' : undefined}
+                />
+
+                {/* Animated bandwidth particles */}
+                {!isDown && [0, 1, 2].map(i => (
+                  <circle
+                    key={i}
+                    r={i === 0 ? '2.5' : '1.8'}
+                    fill={particleColor}
+                    opacity={i === 0 ? 0.9 : 0.45}
+                    style={{ filter: i === 0 ? `drop-shadow(0 0 3px ${particleColor})` : undefined }}
+                  >
+                    <animateMotion
+                      dur={`${duration + i * 0.55}s`}
+                      repeatCount="indefinite"
+                      begin={`${i * (duration / 3)}s`}
+                    >
+                      <mpath href={`#${pathId}`} />
+                    </animateMotion>
+                  </circle>
+                ))}
               </g>
             );
           })}
         </svg>
 
-        {/* CSS animation inline for link flows */}
-        <style dangerouslySetInnerHTML={{__html: `
-          @keyframes flow-animation {
-            to {
-              stroke-dashoffset: -100;
-            }
-          }
-        `}} />
+        {/* Remove the old inline style block — animateMotion handles everything */}
 
         {/* Draw Nodes */}
         {NODES.map((node) => {

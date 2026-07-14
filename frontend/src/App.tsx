@@ -226,11 +226,45 @@ export const App: React.FC = () => {
   const healthScore = computeHealthScore();
 
   // ── Feature 3: Failure Countdown ──────────────────────────────────────────
-  // Computed per-router from history
   const failureCountdowns: Record<string, number | null> = {};
   Object.keys(routerHistory).forEach(rid => {
     failureCountdowns[rid] = estimateTimeToFailure(routerHistory[rid] || []);
   });
+
+  // ── Feature 5: Live MTTR (Mean Time to Resolution) ────────────────────────
+  const incidentStartRef = useRef<Record<string, number>>({});
+  const [resolvedTimes, setResolvedTimes] = useState<number[]>([]);
+
+  useEffect(() => {
+    const alertIds = new Set(alerts.map(a => a.router_id));
+    // Record start for new alerts
+    alertIds.forEach(rid => {
+      if (!incidentStartRef.current[rid]) {
+        incidentStartRef.current[rid] = Date.now();
+      }
+    });
+    // Record resolution durations for cleared alerts
+    const resolved: number[] = [];
+    Object.keys(incidentStartRef.current).forEach(rid => {
+      if (!alertIds.has(rid)) {
+        const dur = (Date.now() - incidentStartRef.current[rid]) / 1000;
+        resolved.push(dur);
+        delete incidentStartRef.current[rid];
+      }
+    });
+    if (resolved.length > 0) {
+      setResolvedTimes(prev => [...prev, ...resolved].slice(-20));
+    }
+  }, [alerts]);
+
+  const mttrSeconds = resolvedTimes.length > 0
+    ? Math.round(resolvedTimes.reduce((a, b) => a + b, 0) / resolvedTimes.length)
+    : null;
+  const mttrDisplay = mttrSeconds === null
+    ? '—'
+    : mttrSeconds < 60
+      ? `${mttrSeconds}s`
+      : `${Math.floor(mttrSeconds / 60)}m ${mttrSeconds % 60}s`;
 
   // ── Feature 4: Mission Mode ────────────────────────────────────────────────
   const [healActive, setHealActive] = useState(false);
@@ -1122,7 +1156,7 @@ export const App: React.FC = () => {
       }`}>
         {/* Row 1: KPI Statistics Widgets */}
         {activeTab !== 'copilot' && activeTab !== 'ph1' && activeTab !== 'ph6' && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {/* KPI 1: Latency */}
             <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
               <div>
@@ -1168,6 +1202,27 @@ export const App: React.FC = () => {
               </div>
               <div className={`p-1.5 rounded border ${alerts.length > 0 ? 'bg-noc-danger/15 border-noc-danger/30 text-noc-danger animate-bounce' : 'bg-noc-success/15 border-noc-success/30 text-noc-success'}`}>
                 <AlertCircle className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* KPI 5: Live MTTR */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Avg MTTR</span>
+                <span className={`font-display text-xl font-bold ${
+                  mttrSeconds === null ? 'text-noc-muted' :
+                  mttrSeconds < 120 ? 'text-noc-success' :
+                  mttrSeconds < 300 ? 'text-noc-warning' : 'text-noc-danger'
+                }`}>
+                  {mttrDisplay}
+                </span>
+              </div>
+              <div className={`p-1.5 rounded border ${
+                mttrSeconds === null ? 'bg-noc-border/10 border-noc-border/20 text-noc-muted' :
+                mttrSeconds < 120 ? 'bg-noc-success/10 border-noc-success/20 text-noc-success' :
+                'bg-noc-warning/10 border-noc-warning/20 text-noc-warning'
+              }`}>
+                <Timer className="w-4 h-4" />
               </div>
             </div>
           </div>
