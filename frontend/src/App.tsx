@@ -179,6 +179,10 @@ export const App: React.FC = () => {
   const [isChatExpanded, setIsChatExpanded] = useState(true);
   const [utcTime, setUtcTime] = useState('');
   const [satelliteData, setSatelliteData] = useState<SatelliteTelemetry | null>(null);
+  
+  // ── Closed-Loop Orchestration Config ──────────────────────────────────────
+  const [autoHealEnabled, setAutoHealEnabled] = useState(true);
+
 
   // ── Feature 1: Mission Timeline ───────────────────────────────────────────
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
@@ -332,6 +336,44 @@ export const App: React.FC = () => {
   }, [telemetryData]);
 
   useEffect(() => {
+    if (isMockMode) return;
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/config`);
+        if (res.ok) {
+          const data = await res.json();
+          setAutoHealEnabled(data.auto_heal_enabled);
+        }
+      } catch (err) {
+        console.error('Failed to fetch config:', err);
+      }
+    };
+    fetchConfig();
+  }, [isMockMode]);
+
+  const toggleAutoHeal = async () => {
+    const nextVal = !autoHealEnabled;
+    setAutoHealEnabled(nextVal);
+    
+    if (isMockMode) {
+      pushEvent('info', 'CLOSED-LOOP ORCHESTRATION', `Automation mode toggled to: ${nextVal ? 'ACTIVE' : 'MANUAL'}`);
+      return;
+    }
+
+    try {
+      await fetch(`${BACKEND_URL}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_heal_enabled: nextVal })
+      });
+      pushEvent('info', 'CLOSED-LOOP ORCHESTRATION', `Automation mode toggled to: ${nextVal ? 'ACTIVE' : 'MANUAL'}`);
+    } catch (err) {
+      console.error('Failed to save config:', err);
+      setAutoHealEnabled(!nextVal); // revert
+    }
+  };
+
+  useEffect(() => {
     if (!isMockMode) return;
 
     // Load initial mock states asynchronously to satisfy react-hooks/set-state-in-effect
@@ -449,6 +491,58 @@ export const App: React.FC = () => {
         return next;
       });
 
+      // Mock Auto-Heal orchestration (if enabled in mock mode)
+      if (autoHealEnabled) {
+        setAlerts(currentAlerts => {
+          currentAlerts.forEach(alert => {
+            if (alert.router_id !== 'ALL') {
+              // If not already scheduled, schedule a timeout to heal
+              if (!healingRouterRef.current) {
+                healingRouterRef.current = alert.router_id;
+                pushEvent('heal', `AUTO-HEAL TRIGGERED: ${alert.router_id}`, 'XGBoost predicted >60% risk. Closed-loop orchestrator executing BGP routing path reroute.', alert.router_id);
+                setHealActive(true);
+                setTimeout(() => {
+                  setHealActive(false);
+                  healingRouterRef.current = null;
+                  
+                  // Restore telemetry to normal
+                  setTelemetryData(prev => {
+                    const next = { ...prev };
+                    const node = next[alert.router_id];
+                    if (node) {
+                      next[alert.router_id] = {
+                        ...node,
+                        telemetry: {
+                          ...node.telemetry,
+                          cpu: 18,
+                          latency: 12,
+                          packet_loss: 0.0,
+                          link_status: 1,
+                        },
+                        analysis: {
+                          ...node.analysis,
+                          failure_risk: 1,
+                          is_anomaly: false,
+                          anomaly_score: 0.02,
+                          explanation: 'System operating within standard thresholds. Bandwidth and memory consumption are nominal.',
+                          root_cause: 'None',
+                        }
+                      };
+                    }
+                    return next;
+                  });
+
+                  // Clear alert
+                  setAlerts(prev => prev.filter(a => a.router_id !== alert.router_id));
+                  pushEvent('success', `AUTO-HEAL SOLVED: ${alert.router_id}`, 'Metrics stabilized. Closed-loop resolution complete.', alert.router_id);
+                }, 6000);
+              }
+            }
+          });
+          return currentAlerts;
+        });
+      }
+
       // Update satellite mock values
       setSatelliteData(prev => {
         if (!prev) return null;
@@ -519,7 +613,7 @@ export const App: React.FC = () => {
       clearTimeout(initTimer);
       clearInterval(interval);
     };
-  }, [isMockMode]);
+  }, [isMockMode, autoHealEnabled, pushEvent]);
 
   // Fetch Interceptor for offline mode
   useEffect(() => {
@@ -703,6 +797,17 @@ export const App: React.FC = () => {
         try {
           const packet = JSON.parse(event.data);
           
+          if (packet.type === 'auto_heal_trigger') {
+            const rid = packet.router_id;
+            pushEvent('heal', `AUTO-HEAL TRIGGERED: ${rid}`, `Closed-loop orchestrator initiated automated mitigation script.`, rid);
+            setHealActive(true);
+            setTimeout(() => {
+              setHealActive(false);
+              pushEvent('success', `AUTO-HEAL SOLVED: ${rid}`, `Metrics stabilized. Closed-loop resolution complete.`, rid);
+            }, 6000);
+            return;
+          }
+
           if (packet.type === 'telemetry_update') {
             const data: Record<string, RouterState> = packet.data;
             const activeAlerts: ActiveAlert[] = packet.alerts;
@@ -779,7 +884,7 @@ export const App: React.FC = () => {
       }
       clearTimeout(reconnectTimeout);
     };
-  }, []);
+  }, [pushEvent]);
 
   // REST trigger: Manual override injection
   const handleTriggerScenario = async (routerId: string, scenarioType: string) => {
@@ -1136,6 +1241,20 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono">
+            {/* Closed-Loop Auto-Heal Toggle */}
+            <button
+              onClick={toggleAutoHeal}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition-all duration-300 font-bold ${
+                autoHealEnabled
+                  ? 'text-noc-success bg-noc-success/15 border-noc-success/40 hover:bg-noc-success/25 shadow-glow-green animate-pulse-slow'
+                  : 'text-noc-muted bg-noc-card border-noc-border hover:bg-noc-border hover:text-noc-text'
+              }`}
+              title="Click to toggle between Closed-Loop Automated Healing and Manual operator mitigation mode"
+            >
+              <Shield className={`w-3.5 h-3.5 ${autoHealEnabled ? 'text-noc-success animate-bounce' : 'text-noc-muted'}`} style={{ animationDuration: '3s' }} />
+              <span>AUTO-HEAL: {autoHealEnabled ? 'CLOSED-LOOP' : 'MANUAL'}</span>
+            </button>
+
             {isMockMode ? (
               <span id="ws-status-mock" className="flex items-center gap-1.5 text-noc-primary bg-noc-primary/10 border border-noc-primary/35 px-2.5 py-1 rounded shadow-glow-cyan">
                 <Radio className="w-3.5 h-3.5 animate-pulse" /> TELEMETRY: SIMULATION (SANDBOX)

@@ -137,7 +137,11 @@ def compute_step_telemetry():
             
     return step_data, enriched_data, active_alerts
 
+auto_heal_enabled = True
+auto_heal_timers: Dict[str, int] = {}  # router_id -> steps remaining
+
 async def broadcast_telemetry():
+    global auto_heal_timers
     while True:
         try:
             # Offload heavy CPU-bound prediction to a thread pool to avoid blocking the event loop
@@ -157,6 +161,58 @@ async def broadcast_telemetry():
                     if len(_enriched_history_cache[rid]) > simulator.history_length:
                         _enriched_history_cache[rid].pop(0)
             
+            # ── Closed-Loop Auto-Heal Orchestrator ──
+            if auto_heal_enabled:
+                alert_router_ids = {alert["router_id"] for alert in active_alerts}
+                
+                # Register countdown for new alerts
+                for rid in alert_router_ids:
+                    # Ignore "ALL" (Space segment solar storm has no router mitigation CLI)
+                    if rid != "ALL" and rid not in auto_heal_timers:
+                        auto_heal_timers[rid] = 3  # 3 steps = 6 seconds
+                        logger.info(f"[Auto-Heal] Scheduled mitigation for {rid} in 6 seconds.")
+
+                # Remove timers for cleared anomalies
+                active_timers = list(auto_heal_timers.keys())
+                for rid in active_timers:
+                    if rid not in alert_router_ids:
+                        del auto_heal_timers[rid]
+                        logger.info(f"[Auto-Heal] Cancelled scheduled mitigation for {rid} (anomaly resolved).")
+
+                # Tick timers and trigger healing
+                for rid in list(auto_heal_timers.keys()):
+                    auto_heal_timers[rid] -= 1
+                    if auto_heal_timers[rid] <= 0:
+                        logger.info(f"[Auto-Heal] Executing automated mitigation CLI script on router {rid}...")
+                        
+                        # Apply mitigation
+                        simulator.set_scenario(rid, "normal", duration_steps=0)
+                        
+                        # Rebuild cache
+                        history = simulator.get_router_history(rid)
+                        new_cache = []
+                        for i in range(1, len(history) + 1):
+                            hist_slice = history[:i]
+                            latest = hist_slice[-1]
+                            ai_output = intelligence.predict_node(hist_slice)
+                            new_cache.append({
+                                **latest,
+                                "failure_risk": ai_output["failure_risk"],
+                                "is_anomaly": ai_output["is_anomaly"],
+                                "anomaly_score": ai_output["anomaly_score"]
+                            })
+                        _enriched_history_cache[rid] = new_cache
+                        
+                        # Remove from timers
+                        del auto_heal_timers[rid]
+
+                        # Broadcast specific event packet so frontend logs timeline entry
+                        await manager.broadcast({
+                            "type": "auto_heal_trigger",
+                            "router_id": rid,
+                            "router_name": ROUTERS.get(rid, rid)
+                        })
+
             # Fetch dynamic satellite telemetry
             sat_data = simulator.get_satellite_telemetry()
 
@@ -206,6 +262,10 @@ class SolarFlareRequest(BaseModel):
 
 class MitigationRequest(BaseModel):
     router_id: str
+
+class ConfigUpdateRequest(BaseModel):
+    auto_heal_enabled: bool
+
 
 @app.get("/api/routers")
 def get_routers():
@@ -297,6 +357,19 @@ def apply_mitigation(req: MitigationRequest):
     _enriched_history_cache[rid] = new_cache
 
     return {"status": "success", "message": f"Mitigation CLI script applied. Router {req.router_id} restored to Normal state."}
+
+@app.get("/api/config")
+def get_config():
+    global auto_heal_enabled
+    return {"auto_heal_enabled": auto_heal_enabled}
+
+@app.post("/api/config")
+def update_config(req: ConfigUpdateRequest):
+    global auto_heal_enabled
+    auto_heal_enabled = req.auto_heal_enabled
+    logger.info(f"Configuration change: auto_heal_enabled set to {auto_heal_enabled}")
+    return {"status": "success", "auto_heal_enabled": auto_heal_enabled}
+
 
 @app.get("/api/satellites")
 def get_satellites():
