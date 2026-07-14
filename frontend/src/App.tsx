@@ -20,6 +20,7 @@ import { BigBoard } from './components/BigBoard';
 import { PlaybookExecutor } from './components/PlaybookExecutor';
 import { AnomalyScatterPlot } from './components/AnomalyScatterPlot';
 import { ChitthiVoiceDrawer } from './components/ChitthiVoiceDrawer';
+import { PathTracer } from './components/PathTracer';
 import { 
   Radio, 
   Wifi, 
@@ -1866,6 +1867,10 @@ export const App: React.FC = () => {
                     <h3 className="font-display font-semibold text-sm text-noc-text uppercase">Node Inspection Offline</h3>
                     <p className="text-xs text-noc-muted max-w-xs mt-1">Select a router node on the topology map to load metrics, historical timeline logs, and recommended cisco fixes.</p>
                   </div>
+                )}
+                
+                {activeTab === 'all' && (
+                  <PathTracer telemetryData={telemetryData} />
                 )}
 
                 {/* ── Feature 1: Mission Timeline Feed ───────────────────── */}
