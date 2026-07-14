@@ -13,7 +13,7 @@ def query_gemini(prompt: str, api_key: str = GEMINI_API_KEY) -> Optional[str]:
     if not api_key:
         return None
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [{
@@ -29,8 +29,10 @@ def query_gemini(prompt: str, api_key: str = GEMINI_API_KEY) -> Optional[str]:
                 parts = content.get("parts", [])
                 if parts:
                     return parts[0].get("text", "").strip()
-    except Exception:
-        pass
+        else:
+            print(f"[Gemini API Error] Status Code: {resp.status_code}, Body: {resp.text}")
+    except Exception as e:
+        print(f"[Gemini API Exception] {str(e)}")
     return None
 
 # Local offline Knowledge Database documents
@@ -232,7 +234,7 @@ class AirGappedCopilot:
                 response_dict = {
                     "answer": gemini_ans,
                     "retrieved_documents": retrieved_docs,
-                    "engine": "Gemini 2.5 Flash"
+                    "engine": "Gemini 3.5 Flash"
                 }
 
         # 2. Try local Ollama if running

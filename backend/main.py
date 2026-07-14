@@ -388,7 +388,7 @@ def get_copilot_status():
     
     engine = "Local Expert Rules"
     if gemini_active:
-        engine = "Gemini 1.5 Flash"
+        engine = "Gemini 3.5 Flash"
     elif ollama_available:
         engine = "Ollama LLM"
         
@@ -396,7 +396,7 @@ def get_copilot_status():
         "ollama_available": ollama_available or gemini_active,
         "ollama_status": "Gemini API Active" if gemini_active else ollama_status,
         "ollama_url": "https://generativelanguage.googleapis.com" if gemini_active else copilot.ollama_url,
-        "ollama_model": "gemini-1.5-flash" if gemini_active else copilot.model_name,
+        "ollama_model": "gemini-3.5-flash" if gemini_active else copilot.model_name,
         "knowledge_docs": len(copilot.docs),
         "engine": engine,
         "status": "ready"
