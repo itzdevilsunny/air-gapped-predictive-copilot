@@ -19,6 +19,7 @@ import { SitrepPanel } from './components/SitrepPanel';
 import { BigBoard } from './components/BigBoard';
 import { PlaybookExecutor } from './components/PlaybookExecutor';
 import { AnomalyScatterPlot } from './components/AnomalyScatterPlot';
+import { ChitthiVoiceDrawer } from './components/ChitthiVoiceDrawer';
 import { 
   Radio, 
   Wifi, 
@@ -190,6 +191,9 @@ export const App: React.FC = () => {
   // ── Closed-Loop Orchestration Config ──────────────────────────────────────
   const [autoHealEnabled, setAutoHealEnabled] = useState(true);
   const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceResponse, setVoiceResponse] = useState('');
+  const [isVoiceDrawerOpen, setIsVoiceDrawerOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
@@ -1132,6 +1136,7 @@ export const App: React.FC = () => {
 
   // ── Speech Synthesis: Verbal Feedback ─────────────────────────────────────
   const speakPhrase = useCallback((text: string) => {
+    setVoiceResponse(text);
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -1248,6 +1253,7 @@ export const App: React.FC = () => {
 
   // ── Speech Recognition: Assistant Controller ─────────────────────────────
   const toggleVoiceAssistant = useCallback(() => {
+    setIsVoiceDrawerOpen(true);
     if (voiceListening) {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
@@ -1268,12 +1274,14 @@ export const App: React.FC = () => {
 
       rec.onstart = () => {
         setVoiceListening(true);
+        setVoiceTranscript('Listening for command...');
         speakPhrase('Chitthi assistant active. Listening for command.');
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rec.onresult = (e: any) => {
         const transcriptText = e.results[0][0].transcript;
+        setVoiceTranscript(transcriptText);
         handleVoiceCommand(transcriptText);
       };
 
@@ -1922,6 +1930,14 @@ export const App: React.FC = () => {
         </div>
       )}
       <Chatbot1 />
+      <ChitthiVoiceDrawer
+        isOpen={isVoiceDrawerOpen}
+        onClose={() => setIsVoiceDrawerOpen(false)}
+        voiceListening={voiceListening}
+        voiceTranscript={voiceTranscript}
+        voiceResponse={voiceResponse}
+        onStartMic={toggleVoiceAssistant}
+      />
     </>
   );
 };
