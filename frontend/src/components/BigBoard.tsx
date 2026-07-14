@@ -1,4 +1,5 @@
-﻿import React, { useMemo, useEffect, useState, useRef } from "react";
+import React, { useMemo, useEffect, useState, useRef } from "react";
+import { Radio, Zap, AlertTriangle, CheckCircle2, Cpu, Wifi, Activity, CloudSun, Compass, Shield } from "lucide-react";
 import type { ActiveAlert, EnrichedHistoryPoint } from "../types";
 import type { MissionEvent } from "./MissionTimeline";
 
@@ -197,18 +198,45 @@ const StationNode: React.FC<{
   );
 };
 
+// ── Satellite Orbits definitions ──────────────────────────────────────────────
+interface SimulatedSatellite {
+  id: string;
+  name: string;
+  type: string;
+  x: number;
+  y: number;
+  radius: number;
+  speed: string;
+  alt: string;
+  color: string;
+  visibleNodes: string[];
+}
+
 // ── Main Big Board ─────────────────────────────────────────────────────────────
 export const BigBoard: React.FC<BigBoardProps> = ({
   telemetryData, alerts, missionEvents, routerHistory, healthScore, utcTime, isMockMode, healActive,
 }) => {
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
   const [missionElapsed, setMissionElapsed] = useState(0);
+  const [time, setTime] = useState(0);
+  const [sidebarTab, setSidebarTab] = useState<"detail" | "satellites">("satellites");
 
   // Mission elapsed counter (seconds since page load, simulating mission ops time)
   useEffect(() => {
     const start = Date.now();
     const t = setInterval(() => setMissionElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Smooth orbital tracking loop
+  useEffect(() => {
+    let frame: number;
+    const tick = () => {
+      setTime(prev => (prev + 0.035) % 100);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   const formatElapsed = (s: number) => {
@@ -221,6 +249,15 @@ export const BigBoard: React.FC<BigBoardProps> = ({
   const stations = useMemo(() =>
     Object.entries(STATION_POSITIONS).map(([id, pos]) => {
       const d = telemetryData[id];
+      // Simulated weather attenuation based on station id
+      let cloudCover = 10;
+      let weather = "NOMINAL (CLEAR)";
+      if (id === "NOC-MUM") { cloudCover = 78; weather = "HEAVY RAIN (FADE ALERT)"; }
+      else if (id === "TRACK-PBL") { cloudCover = 45; weather = "OVERCAST"; }
+      else if (id === "SDSC-SHAR") { cloudCover = 25; weather = "PARTLY CLOUDY"; }
+
+      const signalStrength = Math.round(100 - (cloudCover * 0.45));
+
       return {
         id, ...pos,
         risk: d?.analysis.failure_risk ?? 0,
@@ -231,6 +268,9 @@ export const BigBoard: React.FC<BigBoardProps> = ({
         isAnomaly: d?.analysis.is_anomaly ?? false,
         isAlert: alerts.some(a => a.router_id === id),
         name: d?.telemetry.router_name ?? id,
+        cloudCover,
+        weather,
+        signalStrength,
       };
     }),
     [telemetryData, alerts]
@@ -245,6 +285,48 @@ export const BigBoard: React.FC<BigBoardProps> = ({
   const SVG_W = 520;
   const SVG_H = 380;
   const toSVG = (pct: number, dim: number) => (pct / 100) * dim;
+
+  // Orbit Calculation
+  const satellites = useMemo<SimulatedSatellite[]>(() => {
+    // 1. GSAT-30: Geostationary stationary float
+    const gsatX = toSVG(44.0 + Math.sin(time * 0.08) * 3, SVG_W);
+    const gsatY = toSVG(50.0 + Math.cos(time * 0.08) * 3, SVG_H);
+
+    // 2. CARTOSAT-3: Polar sun-synchronous top-to-bottom
+    const polarPct = (time * 1.6) % 100;
+    const cartoX = toSVG(33.0 + (polarPct / 100) * 15, SVG_W);
+    const cartoY = toSVG(-20 + (polarPct / 100) * 140, SVG_H);
+
+    // 3. RISAT-2B: inclined Equatorial SW-to-NE
+    const eqPct = ((time + 40) * 1.3) % 100;
+    const risatX = toSVG(-20 + (eqPct / 100) * 140, SVG_W);
+    const risatY = toSVG(78.0 - (eqPct / 100) * 60, SVG_H);
+
+    const list = [
+      { id: "GSAT-30", name: "GSAT-30", type: "GEOSTATIONARY", x: gsatX, y: gsatY, radius: 100, speed: "3.07 km/s", alt: "35,786 km", color: "#a855f7" },
+      { id: "CARTOSAT-3", name: "CARTOSAT-3", type: "POLAR ORBIT (LEO)", x: cartoX, y: cartoY, radius: 80, speed: "7.52 km/s", alt: "509 km", color: "#f43f5e" },
+      { id: "RISAT-2B", name: "RISAT-2B", type: "RADAR IMAGING", x: risatX, y: risatY, radius: 90, speed: "7.56 km/s", alt: "557 km", color: "#3b82f6" },
+    ];
+
+    return list.map(sat => {
+      const visibleNodes: string[] = [];
+      stations.forEach(st => {
+        const sx = toSVG(st.x, SVG_W);
+        const sy = toSVG(st.y, SVG_H);
+        const dist = Math.sqrt(Math.pow(sx - sat.x, 2) + Math.pow(sy - sat.y, 2));
+        if (dist < sat.radius) {
+          visibleNodes.push(st.id);
+        }
+      });
+      return { ...sat, visibleNodes };
+    });
+  }, [time, stations]);
+
+  // Handle auto-switch sidebar to detail if a node is clicked
+  const handleStationClick = (id: string) => {
+    setSelectedStation(id);
+    setSidebarTab("detail");
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#020810] rounded-xl overflow-hidden" style={{ minHeight: "600px" }}>
@@ -280,8 +362,8 @@ export const BigBoard: React.FC<BigBoardProps> = ({
             <p className={`text-lg font-black font-mono ${criticalCount > 0 ? "text-red-400 animate-pulse" : "text-green-400"}`}>{criticalCount}</p>
           </div>
           <div className="text-center hidden md:block">
-            <p className="text-[10px] font-mono text-slate-500 uppercase">Stations</p>
-            <p className="text-lg font-black font-mono text-cyan-400">{stations.length}</p>
+            <p className="text-[10px] font-mono text-slate-500 uppercase">Constellation</p>
+            <p className="text-lg font-black font-mono text-purple-400">{satellites.length} sats</p>
           </div>
         </div>
       </div>
@@ -289,7 +371,7 @@ export const BigBoard: React.FC<BigBoardProps> = ({
       {/* ── Main Content Grid ────────────────────────────────────────────────── */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
 
-        {/* Left: India Map + Stations ──────────────────────────────────────── */}
+        {/* Left: India Map + Stations + Satellite orbits ───────────────────── */}
         <div className="lg:col-span-7 relative overflow-hidden flex items-center justify-center bg-[#020810] p-4">
           {/* Grid lines background */}
           <div className="absolute inset-0 opacity-5" style={{
@@ -315,7 +397,7 @@ export const BigBoard: React.FC<BigBoardProps> = ({
             {/* India map fill */}
             <path d={INDIA_PATH} fill="url(#map-bg)" stroke="#1e3a5f" strokeWidth={1.5} opacity={0.8} />
 
-            {/* Link lines */}
+            {/* Data flow link lines */}
             {LINKS.map(([from, to], li) => {
               const fp = STATION_POSITIONS[from]; const tp = STATION_POSITIONS[to];
               if (!fp || !tp) return null;
@@ -326,14 +408,50 @@ export const BigBoard: React.FC<BigBoardProps> = ({
               const linkColor = riskColor(maxRisk);
               return (
                 <g key={`link-${li}`}>
-                  <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={linkColor} strokeWidth={1} strokeDasharray="4 3" opacity={0.25} />
-                  <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={linkColor} strokeWidth={0.5} opacity={0.4} />
-                  {/* Animated packets */}
+                  <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={linkColor} strokeWidth={1} strokeDasharray="4 3" opacity={0.15} />
+                  <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={linkColor} strokeWidth={0.5} opacity={0.25} />
                   <DataPacket x1={fx} y1={fy} x2={tx} y2={ty} color={linkColor} delay={li * 0.7} duration={2.5 + li * 0.3} />
                   <DataPacket x1={tx} y1={ty} x2={fx} y2={fy} color={linkColor} delay={li * 0.5 + 1.2} duration={3 + li * 0.2} />
                 </g>
               );
             })}
+
+            {/* Satellite coverage footprint circles & downlink laser beams */}
+            {satellites.map(sat => (
+              <g key={`sat-g-${sat.id}`}>
+                {/* Coverage Footprint Circle */}
+                <circle cx={sat.x} cy={sat.y} r={sat.radius} fill="none" stroke={sat.color} strokeWidth={1} strokeDasharray="3 3" opacity={0.3} />
+                <circle cx={sat.x} cy={sat.y} r={sat.radius} fill={sat.color} opacity={0.03} />
+
+                {/* Downlink active links to visible ground stations */}
+                {sat.visibleNodes.map(nodeId => {
+                  const pos = STATION_POSITIONS[nodeId];
+                  if (!pos) return null;
+                  const stX = toSVG(pos.x, SVG_W);
+                  const stY = toSVG(pos.y, SVG_H);
+                  return (
+                    <g key={`downlink-${sat.id}-${nodeId}`}>
+                      {/* Laser connection beam */}
+                      <line x1={sat.x} y1={sat.y} x2={stX} y2={stY} stroke={sat.color} strokeWidth={1.5} opacity={0.55} style={{ strokeDasharray: "5 4", strokeDashoffset: time * 10 }} />
+                      <line x1={sat.x} y1={sat.y} x2={stX} y2={stY} stroke="#ffffff" strokeWidth={0.8} opacity={0.7} />
+                    </g>
+                  );
+                })}
+
+                {/* Orbit Path Trajectory Line */}
+                {sat.id === "CARTOSAT-3" && (
+                  <path d={`M ${toSVG(33, SVG_W)} ${toSVG(-20, SVG_H)} L ${toSVG(48, SVG_W)} ${toSVG(120, SVG_H)}`} fill="none" stroke={sat.color} strokeWidth={0.5} strokeDasharray="8 6" opacity={0.15} />
+                )}
+                {sat.id === "RISAT-2B" && (
+                  <path d={`M ${toSVG(-20, SVG_W)} ${toSVG(78, SVG_H)} L ${toSVG(120, SVG_W)} ${toSVG(18, SVG_H)}`} fill="none" stroke={sat.color} strokeWidth={0.5} strokeDasharray="8 6" opacity={0.15} />
+                )}
+
+                {/* Satellite symbol node */}
+                <circle cx={sat.x} cy={sat.y} r={7} fill="#0d1526" stroke={sat.color} strokeWidth={2} style={{ filter: `drop-shadow(0 0 5px ${sat.color})` }} />
+                <circle cx={sat.x} cy={sat.y} r={2.5} fill="#ffffff" />
+                <text x={sat.x} y={sat.y - 10} textAnchor="middle" fill={sat.color} fontSize={7} fontWeight="bold" fontFamily="monospace">{sat.name}</text>
+              </g>
+            ))}
 
             {/* Station nodes */}
             {stations.map(st => (
@@ -348,84 +466,187 @@ export const BigBoard: React.FC<BigBoardProps> = ({
                 isAnomaly={st.isAnomaly}
                 isAlert={st.isAlert}
                 selected={selectedStation === st.id}
-                onClick={() => setSelectedStation(selectedStation === st.id ? null : st.id)}
+                onClick={() => handleStationClick(st.id)}
               />
             ))}
 
             {/* Title overlay */}
             <text x={SVG_W / 2} y={15} textAnchor="middle" fill="#1e3a5f" fontSize={10} fontFamily="monospace" fontWeight="bold">
-              ISRO GROUND STATION NETWORK — INDIA COMMAND ZONE
+              ISRO GROUND CONSTELLATION CONTROL radar
             </text>
           </svg>
         </div>
 
-        {/* Right: Station Detail + Ring Gauges ────────────────────────────── */}
+        {/* Right Sidebar: Details / Space-Segment Consolation Deck ────────── */}
         <div className="lg:col-span-5 flex flex-col border-l border-[#1e3a5f]/40 overflow-y-auto">
+          {/* Tab Selection */}
+          <div className="grid grid-cols-2 border-b border-[#1e3a5f]/40 bg-[#060a16]">
+            <button
+              onClick={() => setSidebarTab("satellites")}
+              className={`py-2 text-[10px] font-mono font-bold tracking-wider uppercase border-b-2 transition-colors ${
+                sidebarTab === "satellites" ? "text-purple-300 border-purple-500 bg-[#0c1428]/40" : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
+            >
+              🛰️ Space Segment
+            </button>
+            <button
+              onClick={() => setSidebarTab("detail")}
+              className={`py-2 text-[10px] font-mono font-bold tracking-wider uppercase border-b-2 transition-colors ${
+                sidebarTab === "detail" ? "text-cyan-300 border-cyan-500 bg-[#0c1428]/40" : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
+            >
+              🛠️ Node Details
+            </button>
+          </div>
 
-          {/* Selected station detail */}
-          {selected ? (
-            <div className="p-4 border-b border-[#1e3a5f]/40 bg-[#060e1f]">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">SELECTED STATION</p>
-                  <p className="font-mono font-black text-sm text-white">{selected.id}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">{selected.name}</p>
+          {sidebarTab === "satellites" ? (
+            <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+              {/* Space Weather Section */}
+              <div className="bg-[#0a1428]/80 border border-[#1e3a5f]/40 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2 pb-1 border-b border-[#1e3a5f]/40">
+                  <CloudSun className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="text-[10px] font-mono font-black text-purple-300 uppercase tracking-widest">Space Weather Dashboard</span>
                 </div>
-                <button onClick={() => setSelectedStation(null)} className="text-slate-500 hover:text-white text-xs font-mono">✕ DESELECT</button>
+                <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono">
+                  <div className="bg-[#050c18] border border-[#1e3a5f]/20 rounded p-1.5">
+                    <p className="text-slate-500 text-[9px] uppercase">Solar Wind</p>
+                    <p className="text-white font-bold">342.1 km/s <span className="text-green-400 text-[8px]">Stable</span></p>
+                  </div>
+                  <div className="bg-[#050c18] border border-[#1e3a5f]/20 rounded p-1.5">
+                    <p className="text-slate-500 text-[9px] uppercase">Magnetosphere</p>
+                    <p className="text-white font-bold">Kp Index: 1 <span className="text-green-400 text-[8px]">Quiet</span></p>
+                  </div>
+                  <div className="bg-[#050c18] border border-[#1e3a5f]/20 rounded p-1.5">
+                    <p className="text-slate-500 text-[9px] uppercase">Ionosphere F2</p>
+                    <p className="text-white font-bold">9.2 MHz <span className="text-green-400 text-[8px]">Nominal</span></p>
+                  </div>
+                  <div className="bg-[#050c18] border border-[#1e3a5f]/20 rounded p-1.5">
+                    <p className="text-slate-500 text-[9px] uppercase">Proton Flux</p>
+                    <p className="text-white font-bold">0.14 pfu <span className="text-green-400 text-[8px]">Safe</span></p>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 justify-items-center">
-                <RingGauge value={Math.round(selected.risk)} size={80} label="RISK" color={riskColor(selected.risk)} />
-                <RingGauge value={Math.round(selected.cpu)} size={80} label="CPU" color={selected.cpu > 70 ? "#ef4444" : selected.cpu > 50 ? "#f59e0b" : "#22c55e"} />
-                <RingGauge value={Math.min(100, Math.round(selected.latency / 2))} size={80} label="LATENCY" color={selected.latency > 80 ? "#ef4444" : selected.latency > 40 ? "#f59e0b" : "#22c55e"} />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-mono">
-                {[
-                  { l: "Latency", v: `${selected.latency.toFixed(1)} ms`, bad: selected.latency > 80 },
-                  { l: "Jitter", v: `${selected.jitter.toFixed(1)} ms`, bad: selected.jitter > 20 },
-                  { l: "Pkt Loss", v: `${selected.packetLoss.toFixed(2)} %`, bad: selected.packetLoss > 2 },
-                  { l: "Anomaly", v: selected.isAnomaly ? "YES" : "NO", bad: selected.isAnomaly },
-                ].map(m => (
-                  <div key={m.l} className="bg-[#0a1428] rounded border border-[#1e3a5f]/40 px-2 py-1.5">
-                    <p className="text-[9px] text-slate-500 uppercase">{m.l}</p>
-                    <p className={`font-bold ${m.bad ? "text-red-400" : "text-green-400"}`}>{m.v}</p>
+
+              {/* Satellites tracking list */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[9.5px] font-mono font-black text-slate-500 uppercase tracking-widest">Active Satellite Constellation</span>
+                {satellites.map(sat => (
+                  <div key={sat.id} className="bg-[#0a1428]/80 border border-[#1e3a5f]/40 rounded-lg p-3 flex flex-col gap-2 transition-all hover:border-[#1e3a5f]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ background: sat.color }} />
+                        <span className="text-xs font-mono font-black text-white">{sat.name}</span>
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-400 bg-[#1e3a5f]/40 px-2 py-0.5 rounded uppercase">{sat.type}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300">
+                      <div>
+                        <span className="text-slate-500 uppercase text-[8.5px]">Altitude:</span> {sat.alt}
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase text-[8.5px]">Orbital Velocity:</span> {sat.speed}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[#1e3a5f]/30 pt-1.5 flex flex-wrap gap-1 items-center">
+                      <span className="text-[9px] font-mono text-slate-500 uppercase mr-1">Visible Stations:</span>
+                      {sat.visibleNodes.length > 0 ? (
+                        sat.visibleNodes.map(nodeId => (
+                          <span key={nodeId} className="text-[9px] font-mono bg-green-500/10 border border-green-500/30 text-green-300 px-1.5 py-0.5 rounded font-bold">
+                            {nodeId}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[9px] font-mono text-slate-500 italic">No nodes in footprint</span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="p-3 border-b border-[#1e3a5f]/40 bg-[#060e1f]">
-              <p className="text-[10px] text-slate-500 font-mono text-center">Click a station on the map for details</p>
+            <div className="flex-1 flex flex-col overflow-y-auto">
+              {/* Selected station detail */}
+              {selected ? (
+                <div className="p-4 border-b border-[#1e3a5f]/40 bg-[#060e1f] flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">SELECTED STATION</p>
+                      <p className="font-mono font-black text-sm text-white">{selected.id}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{selected.name}</p>
+                    </div>
+                    <button onClick={() => setSelectedStation(null)} className="text-slate-500 hover:text-white text-xs font-mono">✕ DESELECT</button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 justify-items-center">
+                    <RingGauge value={Math.round(selected.risk)} size={80} label="RISK" color={riskColor(selected.risk)} />
+                    <RingGauge value={Math.round(selected.cpu)} size={80} label="CPU" color={selected.cpu > 70 ? "#ef4444" : selected.cpu > 50 ? "#f59e0b" : "#22c55e"} />
+                    <RingGauge value={Math.min(100, Math.round(selected.latency / 2))} size={80} label="LATENCY" color={selected.latency > 80 ? "#ef4444" : selected.latency > 40 ? "#f59e0b" : "#22c55e"} />
+                  </div>
+
+                  <div className="bg-[#050c18] border border-[#1e3a5f]/40 rounded-lg p-2.5 flex flex-col gap-1.5 font-mono text-xs">
+                    <div className="flex items-center justify-between pb-1 border-b border-[#1e3a5f]/25">
+                      <span className="text-slate-400 flex items-center gap-1"><CloudSun className="w-3.5 h-3.5" /> Station Weather:</span>
+                      <span className="font-bold text-white uppercase text-[11px]">{selected.weather}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Signal Attenuation (Downlink):</span>
+                      <span className={`font-bold ${selected.signalStrength >= 85 ? "text-green-400" : selected.signalStrength >= 65 ? "text-amber-400" : "text-red-400"}`}>
+                        {selected.signalStrength}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    {[
+                      { l: "Latency", v: `${selected.latency.toFixed(1)} ms`, bad: selected.latency > 80 },
+                      { l: "Jitter", v: `${selected.jitter.toFixed(1)} ms`, bad: selected.jitter > 20 },
+                      { l: "Pkt Loss", v: `${selected.packetLoss.toFixed(2)} %`, bad: selected.packetLoss > 2 },
+                      { l: "Anomaly Flag", v: selected.isAnomaly ? "YES" : "NO", bad: selected.isAnomaly },
+                    ].map(m => (
+                      <div key={m.l} className="bg-[#0a1428] rounded border border-[#1e3a5f]/40 px-2 py-1.5">
+                        <p className="text-[9px] text-slate-500 uppercase">{m.l}</p>
+                        <p className={`font-bold ${m.bad ? "text-red-400" : "text-green-400"}`}>{m.v}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 border-b border-[#1e3a5f]/40 bg-[#060e1f] text-center">
+                  <p className="text-[10px] text-slate-500 font-mono">Select a ground station node on the map to display metrics</p>
+                </div>
+              )}
+
+              {/* All-stations risk overview */}
+              <div className="p-4 flex-1">
+                <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-3">All Station Risk Grid</p>
+                <div className="grid grid-cols-3 gap-3 justify-items-center">
+                  {stations.map(st => (
+                    <button
+                      key={st.id}
+                      onClick={() => handleStationClick(st.id)}
+                      className="flex flex-col items-center gap-1 hover:opacity-85 transition-opacity"
+                    >
+                      <RingGauge value={Math.round(st.risk)} size={68} label={st.shortLabel} color={riskColor(st.risk)} />
+                      {st.isAlert && (
+                        <span className="text-[8px] font-mono font-bold text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded animate-pulse">ALERT</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* All-stations ring gauge grid */}
-          <div className="p-3 flex-1">
-            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-3">ALL STATION RISK OVERVIEW</p>
-            <div className="grid grid-cols-3 gap-3 justify-items-center">
-              {stations.map(st => (
-                <button
-                  key={st.id}
-                  onClick={() => setSelectedStation(st.id)}
-                  className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity"
-                >
-                  <RingGauge value={Math.round(st.risk)} size={72} label={st.shortLabel} color={riskColor(st.risk)} />
-                  {st.isAlert && (
-                    <span className="text-[9px] font-mono text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded animate-pulse">ALERT</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Key metrics summary */}
-          <div className="px-3 pb-3 border-t border-[#1e3a5f]/40 pt-3">
+          {/* Key metrics KPIs */}
+          <div className="px-3 pb-3 border-t border-[#1e3a5f]/40 pt-3 bg-[#030a18]">
             <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-2">NETWORK KPIs</p>
             <div className="grid grid-cols-2 gap-2">
               {[
                 { label: "Avg Latency", value: `${(Object.values(telemetryData).reduce((s, d) => s + d.telemetry.latency, 0) / (Object.values(telemetryData).length || 1)).toFixed(1)} ms` },
                 { label: "Avg CPU", value: `${(Object.values(telemetryData).reduce((s, d) => s + d.telemetry.cpu, 0) / (Object.values(telemetryData).length || 1)).toFixed(1)} %` },
                 { label: "Active Alerts", value: alerts.length.toString() },
-                { label: "Events Today", value: missionEvents.length.toString() },
+                { label: "Daily Events", value: missionEvents.length.toString() },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-[#0a1428] rounded border border-[#1e3a5f]/40 px-2 py-1.5 font-mono">
                   <p className="text-[9px] text-slate-500 uppercase">{kpi.label}</p>
