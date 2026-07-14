@@ -21,6 +21,7 @@ import { PlaybookExecutor } from './components/PlaybookExecutor';
 import { AnomalyScatterPlot } from './components/AnomalyScatterPlot';
 import { ChitthiVoiceDrawer } from './components/ChitthiVoiceDrawer';
 import { PathTracer } from './components/PathTracer';
+import { SlaConsole } from './components/SlaConsole';
 import { 
   Radio, 
   Wifi, 
@@ -1783,10 +1784,16 @@ export const App: React.FC = () => {
                       />
                     </div>
                     {activeTab === 'anomalies' && (
-                      <AnomalyScatterPlot
-                        telemetryData={telemetryData as Parameters<typeof AnomalyScatterPlot>[0]['telemetryData']}
-                        routerHistory={routerHistory}
-                      />
+                      <>
+                        <AnomalyScatterPlot
+                          telemetryData={telemetryData as Parameters<typeof AnomalyScatterPlot>[0]['telemetryData']}
+                          routerHistory={routerHistory}
+                        />
+                        <SlaConsole
+                          telemetryData={telemetryData}
+                          resolvedTimes={resolvedTimes}
+                        />
+                      </>
                     )}
                   </>
                 )}
