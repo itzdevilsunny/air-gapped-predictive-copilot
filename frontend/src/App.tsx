@@ -14,6 +14,7 @@ import Phase6Dashboard from './components/phase6/Phase6Dashboard';
 import { MissionTimeline } from './components/MissionTimeline';
 import type { MissionEvent, MissionEventSeverity } from './components/MissionTimeline';
 import { HealthGauge } from './components/HealthGauge';
+import { ForecastEngine } from './components/ForecastEngine';
 import { 
   Radio, 
   Wifi, 
@@ -294,7 +295,7 @@ export const App: React.FC = () => {
   const modeCfg = MISSION_MODE_CONFIG[missionMode];
 
   // Tab/Routing state
-  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6'>(() => {
+  const [activeTab, setActiveTab] = useState<'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam === 'overview') return 'overview';
@@ -305,6 +306,7 @@ export const App: React.FC = () => {
     if (tabParam === 'selfheal' || tabParam === 'heal') return 'selfheal';
     if (tabParam === 'ph1') return 'ph1';
     if (tabParam === 'ph6') return 'ph6';
+    if (tabParam === 'forecast') return 'forecast';
     return 'all';
   });
 
@@ -320,6 +322,7 @@ export const App: React.FC = () => {
       else if (tabParam === 'selfheal' || tabParam === 'heal') setActiveTab('selfheal');
       else if (tabParam === 'ph1') setActiveTab('ph1');
       else if (tabParam === 'ph6') setActiveTab('ph6');
+      else if (tabParam === 'forecast') setActiveTab('forecast');
       else setActiveTab('all');
     };
     window.addEventListener('popstate', handleLocationChange);
@@ -726,7 +729,7 @@ export const App: React.FC = () => {
     };
   }, [isMockMode]);
 
-  const handleTabNavigate = useCallback((tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6') => {
+  const handleTabNavigate = useCallback((tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast') => {
     const url = tab === 'all' ? window.location.pathname : `?tab=${tab}`;
     window.history.pushState({}, '', url);
     setActiveTab(tab);
@@ -735,7 +738,7 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6', e: React.MouseEvent) => {
+  const handleTabClick = (tab: 'all' | 'overview' | 'predictions' | 'anomalies' | 'rootcause' | 'copilot' | 'selfheal' | 'ph1' | 'ph6' | 'forecast', e: React.MouseEvent) => {
     e.preventDefault();
     handleTabNavigate(tab);
   };
@@ -1497,6 +1500,18 @@ export const App: React.FC = () => {
             >
               PH 6 HEAL
             </button>
+            <span className="text-noc-border px-1">|</span>
+            <button
+              id="tab-forecast"
+              onClick={(e) => handleTabClick('forecast', e)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+                activeTab === 'forecast'
+                  ? 'bg-purple-500/25 text-purple-300 shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                  : 'hover:bg-purple-500/20 text-purple-400/70 hover:text-purple-300'
+              }`}
+            >
+              ⚡ FORECAST
+            </button>
           </div>
 
           {/* Trigger Failure Injection Deck */}
@@ -1608,6 +1623,22 @@ export const App: React.FC = () => {
         ) : activeTab === 'ph6' ? (
           <div className="phase6-app flex-1 flex flex-col h-full min-h-[500px]">
             <Phase6Dashboard isInline={true} />
+          </div>
+        ) : activeTab === 'forecast' ? (
+          <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-purple-500/20 rounded-xl p-5 glass-panel min-h-[500px] overflow-y-auto">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-1.5 h-6 bg-purple-400 rounded-full" />
+              <div>
+                <h3 className="text-sm font-mono font-black text-purple-300 uppercase tracking-widest">⚡ PREDICTIVE FAILURE FORECAST ENGINE</h3>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">AI-powered 30-minute failure risk projection using exponential smoothing + linear regression on live telemetry</p>
+              </div>
+            </div>
+            <ForecastEngine
+              routerHistory={routerHistory}
+              routerNames={Object.fromEntries(
+                Object.entries(telemetryData).map(([id, s]) => [id, s.telemetry.router_name])
+              )}
+            />
           </div>
         ) : activeTab === 'copilot' ? (
           <div className="flex-1 flex flex-col h-full bg-[#060a16] border border-noc-border rounded-xl p-4 glass-panel min-h-[500px]">
