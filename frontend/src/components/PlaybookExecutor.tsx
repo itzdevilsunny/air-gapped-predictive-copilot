@@ -477,6 +477,34 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
     });
   };
 
+  const moveStep = (index: number, direction: "up" | "down") => {
+    setDesignerPlaybook(prev => {
+      const nextSteps = [...prev.steps];
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= nextSteps.length) return prev;
+      
+      const temp = nextSteps[index];
+      nextSteps[index] = nextSteps[targetIndex];
+      nextSteps[targetIndex] = temp;
+      
+      return { ...prev, steps: nextSteps };
+    });
+  };
+
+  const cloneStep = (index: number) => {
+    setDesignerPlaybook(prev => {
+      const nextSteps = [...prev.steps];
+      const stepToClone = nextSteps[index];
+      const clonedStep = {
+        cmd: stepToClone.cmd,
+        expectedOutput: [...stepToClone.expectedOutput],
+        durationMs: stepToClone.durationMs
+      };
+      nextSteps.splice(index + 1, 0, clonedStep);
+      return { ...prev, steps: nextSteps };
+    });
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" style={{ minHeight: "550px" }}>
       {/* Playbook Configuration Sidebar */}
@@ -669,13 +697,42 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
                   <div key={idx} className="p-2 border border-[#1e3a5f]/30 rounded bg-[#030611]/60 flex flex-col gap-2">
                     <div className="flex items-center justify-between text-[9px] text-slate-500">
                       <span>STEP {idx + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeStep(idx)}
-                        className="text-red-400 hover:text-red-300 font-bold"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex items-center gap-2 font-mono">
+                        <button
+                          type="button"
+                          onClick={() => moveStep(idx, "up")}
+                          disabled={idx === 0}
+                          className="text-amber-400 hover:text-amber-300 disabled:text-slate-700 disabled:cursor-not-allowed font-bold"
+                          title="Move Up"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveStep(idx, "down")}
+                          disabled={idx === designerPlaybook.steps.length - 1}
+                          className="text-amber-400 hover:text-amber-300 disabled:text-slate-700 disabled:cursor-not-allowed font-bold"
+                          title="Move Down"
+                        >
+                          ▼
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cloneStep(idx)}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold ml-1"
+                          title="Duplicate Step"
+                        >
+                          Clone
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeStep(idx)}
+                          className="text-red-400 hover:text-red-300 font-bold ml-1"
+                          title="Delete Step"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
 
                     <input
