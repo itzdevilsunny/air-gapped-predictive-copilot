@@ -165,10 +165,52 @@ class AirGappedCopilot:
                     except Exception as e:
                         print(f"Error loading SOP {filename}: {e}")
                         
-        if not docs:
-            docs = OFFLINE_DOCS.copy()
+        # Load from Supabase to support stateless deployments (e.g. Vercel)
+        supabase_url = os.getenv("SUPABASE_URL", "")
+        supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+        supabase_docs = []
+        if supabase_url and supabase_key:
+            try:
+                url = f"{supabase_url.rstrip('/')}/rest/v1/sops_documents"
+                headers = {
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}"
+                }
+                resp = requests.get(url, headers=headers, timeout=3.0)
+                if resp.status_code == 200:
+                    for row in resp.json():
+                        filename = row.get("filename", "")
+                        if not filename:
+                            continue
+                        # If database content is MD/TXT, parsing title
+                        content = row.get("content", "").strip()
+                        lines = content.split("\n")
+                        title = row.get("title", "") or (lines[0].strip() if lines else filename)
+                        
+                        supabase_docs.append({
+                            "id": filename,
+                            "title": title,
+                            "content": content
+                        })
+            except Exception as e:
+                print(f"[SOP Supabase] Error syncing SOPs from Supabase: {e}")
+
+        # Merge local and Supabase docs, preferring Supabase if duplicate
+        seen_ids = set()
+        merged_docs = []
+        for d in supabase_docs:
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                merged_docs.append(d)
+        for d in docs:
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                merged_docs.append(d)
+
+        if not merged_docs:
+            merged_docs = OFFLINE_DOCS.copy()
             
-        self.docs = docs
+        self.docs = merged_docs
         if len(self.docs) > 0:
             self.doc_texts = [f"{d['title']}\n{d['content']}" for d in self.docs]
             self.doc_vectors = self.vectorizer.fit_transform(self.doc_texts)

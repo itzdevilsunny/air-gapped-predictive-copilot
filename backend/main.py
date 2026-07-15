@@ -852,9 +852,39 @@ async def upload_sop(file: UploadFile = File(...)):
         content = await file.read()
         text_content = content.decode("utf-8")
         
+        # Write to local sops_dir
         with open(dest_path, "w", encoding="utf-8") as f:
             f.write(text_content)
             
+        # Parse title
+        lines = text_content.split("\n")
+        title = lines[0].strip() if lines else filename
+        if len(title) > 80 or not title:
+            title = filename.replace("_", " ").replace(".txt", "").replace(".md", "").title()
+            
+        # Persist to Supabase if credentials are available
+        supabase_url = os.getenv("SUPABASE_URL", "")
+        supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+        if supabase_url and supabase_key:
+            try:
+                url = f"{supabase_url.rstrip('/')}/rest/v1/sops_documents"
+                headers = {
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "resolution=merge-duplicates"
+                }
+                payload = {
+                    "filename": filename,
+                    "title": title,
+                    "content": text_content
+                }
+                resp = requests.post(url, headers=headers, json=payload, timeout=4.0)
+                if resp.status_code not in [200, 201]:
+                    logger.warning(f"[SOP Supabase Save] Code {resp.status_code}: {resp.text}")
+            except Exception as se:
+                logger.error(f"[SOP Supabase Save] Exception: {se}")
+
         copilot.reload_sops()
         return {"status": "success", "message": f"SOP '{filename}' uploaded and indexed successfully"}
     except Exception as e:
