@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Mic, MicOff, Volume2, VolumeX, Send, X, Bot, User,
-  ImagePlus, Zap, Brain, Sparkles, ChevronDown, Trash2, Copy, Check
+  ImagePlus, Zap, Brain, Sparkles, ChevronDown, Trash2, Copy, Check,
+  History, Search, Clock, ChevronRight
 } from 'lucide-react';
 
 /* ───────────────────────── Types ───────────────────────── */
@@ -277,7 +278,63 @@ export const Chatbot1: React.FC = () => {
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
 
+  // ── Session Persistence ──
+  const sessionId = useRef<string>(
+    (() => {
+      let sid = localStorage.getItem('chitthi_session_id');
+      if (!sid) {
+        sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        localStorage.setItem('chitthi_session_id', sid);
+      }
+      return sid;
+    })()
+  );
+  const [showHistory, setShowHistory] = useState(false);
+  const [chatHistory, setChatHistory] = useState<Array<{
+    session_id: string;
+    started_at: string;
+    message_count: number;
+    preview: string;
+    messages: Array<{ role: string; content: string; created_at: string; router_context?: string }>;
+  }>>([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+
+  const fetchChatHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch('/api/chat-sessions?source=chitthi&limit=100');
+      if (res.ok) {
+        const data = await res.json();
+        setChatHistory(data);
+      }
+    } catch (err) {
+      console.error('[CHITTHI] Failed to load chat history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const saveChatTurn = useCallback(async (userContent: string, assistantContent: string) => {
+    const sid = sessionId.current;
+    const base = { session_id: sid, source: 'chitthi', router_context: null };
+    for (const entry of [
+      { ...base, role: 'user', content: userContent },
+      { ...base, role: 'assistant', content: assistantContent }
+    ]) {
+      try {
+        await fetch('/api/chat-sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+      } catch { /* silent — persistence is non-blocking */ }
+    }
+  }, []);
+
   // Draggable
+
   const [position, setPosition] = useState({ x: window.innerWidth - 80, y: window.innerHeight - 450 });
   const [isDragging, setIsDragging] = useState(false);
   const [hasDragged, setHasDragged] = useState(false);
@@ -535,6 +592,7 @@ export const Chatbot1: React.FC = () => {
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: accumulated } : m));
         }
         setIsStreaming(false);
+        saveChatTurn(userMsg.content, cleanContent(responseText));
         speakText(cleanContent(responseText));
         return;
       }
@@ -562,6 +620,7 @@ export const Chatbot1: React.FC = () => {
         accumulated += decoder.decode(value, { stream: true });
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: accumulated } : m));
       }
+      saveChatTurn(userMsg.content, cleanContent(accumulated));
       speakText(cleanContent(accumulated));
     } catch (err) {
       console.error(err);
@@ -577,6 +636,10 @@ export const Chatbot1: React.FC = () => {
   }
 
   const clearChat = () => {
+    // Start a fresh session on clear
+    const newSid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem('chitthi_session_id', newSid);
+    sessionId.current = newSid;
     setMessages([{
       id: uid(), role: 'assistant',
       content: 'Chat cleared. All systems still nominal. How can I help? Dot.',
@@ -681,6 +744,21 @@ export const Chatbot1: React.FC = () => {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {/* History button */}
+              <button
+                onClick={() => { setShowHistory(h => !h); if (!showHistory) fetchChatHistory(); }}
+                title="Conversation History"
+                style={{
+                  padding: '5px 6px', borderRadius: 7, cursor: 'pointer',
+                  background: showHistory ? 'rgba(6,182,212,0.15)' : 'transparent',
+                  border: showHistory ? '1px solid rgba(6,182,212,0.3)' : 'none',
+                  color: showHistory ? '#22d3ee' : '#475569'
+                }}
+                onMouseEnter={e => { if (!showHistory) { e.currentTarget.style.background = 'rgba(6,182,212,0.1)'; e.currentTarget.style.color = '#22d3ee'; } }}
+                onMouseLeave={e => { if (!showHistory) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#475569'; } }}
+              >
+                <History style={{ width: 13, height: 13 }} />
+              </button>
               <button onClick={clearChat} title="Clear chat" style={{ padding: '5px 6px', borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#475569' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.1)', e.currentTarget.style.color = '#f87171')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent', e.currentTarget.style.color = '#475569')}>
@@ -699,11 +777,122 @@ export const Chatbot1: React.FC = () => {
             </div>
           </div>
 
+          {/* ── History Drawer ── */}
+          {showHistory && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 10,
+              background: 'linear-gradient(145deg, rgba(6,10,22,0.99) 0%, rgba(8,15,35,0.99) 100%)',
+              borderRadius: 20, display: 'flex', flexDirection: 'column',
+              animation: 'fadeSlideIn 0.2s ease'
+            }}>
+              {/* Drawer header */}
+              <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid rgba(34,211,238,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <History style={{ width: 15, height: 15, color: '#22d3ee' }} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#22d3ee', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Chat History</span>
+                  <span style={{ fontSize: 10, background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)', color: '#22d3ee', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>
+                    {chatHistory.length} sessions
+                  </span>
+                </div>
+                <button onClick={() => setShowHistory(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#475569', padding: '4px' }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#e2e8f0'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#475569'}>
+                  <X style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
+              {/* Search */}
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 10px' }}>
+                  <Search style={{ width: 12, height: 12, color: '#475569', flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    placeholder="Search conversations..."
+                    value={historySearch}
+                    onChange={e => setHistorySearch(e.target.value)}
+                    style={{ background: 'transparent', border: 'none', outline: 'none', color: '#cbd5e1', fontSize: 11, width: '100%', fontFamily: 'inherit' }}
+                  />
+                </div>
+              </div>
+              {/* Sessions list */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: 6, scrollbarWidth: 'thin', scrollbarColor: '#1e3a5f transparent' }}>
+                {historyLoading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#475569', fontSize: 11, gap: 8 }}>
+                    <div style={{ width: 16, height: 16, border: '2px solid #22d3ee', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    Loading sessions from Supabase...
+                  </div>
+                ) : chatHistory.length === 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#334155', gap: 8 }}>
+                    <MessageSquare style={{ width: 28, height: 28, opacity: 0.3 }} />
+                    <span style={{ fontSize: 11 }}>No saved conversations yet</span>
+                    <span style={{ fontSize: 10, color: '#1e3a5f' }}>Send a message to begin</span>
+                  </div>
+                ) : (
+                  chatHistory
+                    .filter(s => !historySearch || s.preview.toLowerCase().includes(historySearch.toLowerCase()))
+                    .map(session => (
+                      <div key={session.session_id} style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                        {/* Session header row */}
+                        <button
+                          onClick={() => setExpandedSession(expandedSession === session.session_id ? null : session.session_id)}
+                          style={{
+                            width: '100%', textAlign: 'left', padding: '9px 11px',
+                            background: expandedSession === session.session_id ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.03)',
+                            border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8
+                          }}
+                        >
+                          <ChevronRight style={{
+                            width: 11, height: 11, color: '#22d3ee', flexShrink: 0,
+                            transition: 'transform 0.2s',
+                            transform: expandedSession === session.session_id ? 'rotate(90deg)' : 'none'
+                          }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 10, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {session.preview || '(empty session)'}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                              <Clock style={{ width: 9, height: 9, color: '#334155' }} />
+                              <span style={{ fontSize: 9, color: '#334155', fontFamily: 'monospace' }}>
+                                {session.started_at ? new Date(session.started_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Unknown time'}
+                              </span>
+                              <span style={{ fontSize: 9, background: 'rgba(6,182,212,0.1)', color: '#22d3ee', borderRadius: 3, padding: '0px 5px', border: '1px solid rgba(6,182,212,0.2)' }}>
+                                {session.message_count} msgs
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                        {/* Expanded transcript */}
+                        {expandedSession === session.session_id && (
+                          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '8px', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#1e3a5f transparent' }}>
+                            {session.messages.map((msg, i) => (
+                              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4, flexShrink: 0, marginTop: 1,
+                                  background: msg.role === 'user' ? 'rgba(6,182,212,0.15)' : 'rgba(139,92,246,0.15)',
+                                  color: msg.role === 'user' ? '#22d3ee' : '#a78bfa',
+                                  border: msg.role === 'user' ? '1px solid rgba(6,182,212,0.2)' : '1px solid rgba(139,92,246,0.2)'
+                                }}>
+                                  {msg.role === 'user' ? 'OP' : 'AI'}
+                                </span>
+                                <span style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.5 }}>
+                                  {msg.content.length > 120 ? msg.content.slice(0, 120) + '…' : msg.content}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── Messages ── */}
           <div
             ref={messagesContainerRef}
             style={{ flex: 1, overflowY: 'auto', padding: '14px 12px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'thin', scrollbarColor: '#1e3a5f transparent' }}
           >
+
             {messages.map((m) => (
               <div key={m.id} style={{ display: 'flex', flexDirection: m.role === 'user' ? 'row-reverse' : 'row', gap: 8, alignItems: 'flex-start', animation: 'fadeSlideIn 0.25s ease' }}>
                 {/* Avatar */}

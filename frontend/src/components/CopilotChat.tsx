@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { ChatMessage, RouterState, CopilotDocument } from '../types';
 import { Send, Terminal, Bot, User, BookOpen, RefreshCw, Upload, FolderOpen, X } from 'lucide-react';
 
@@ -33,6 +33,31 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const [copilotStatus, setCopilotStatus] = useState<{ engine: string; knowledge_docs: number } | null>(null);
+
+  // ── Copilot Session Persistence ──
+  const [copilotSessionId] = useState<string>(() => {
+    const existing = localStorage.getItem('copilot_session_id');
+    if (existing) return existing;
+    const newId = `csess_${String(Date.now())}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem('copilot_session_id', newId);
+    return newId;
+  });
+
+  const saveCopilotChatTurn = useCallback(async (userText: string, assistantText: string, routerCtx: string | null) => {
+    const base = { session_id: copilotSessionId, source: 'copilot', router_context: routerCtx };
+    for (const entry of [
+      { ...base, role: 'user', content: userText },
+      { ...base, role: 'assistant', content: assistantText }
+    ]) {
+      try {
+        await fetch('/api/chat-sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+      } catch { /* non-blocking */ }
+    }
+  }, [copilotSessionId]);
 
   const fetchSops = async () => {
     try {
@@ -141,6 +166,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
       };
 
       setMessages(prev => [...prev, copilotMsg]);
+      // Persist to Supabase asynchronously
+      saveCopilotChatTurn(userQuery, response.answer, selectedRouterContext);
     } catch (err) {
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,

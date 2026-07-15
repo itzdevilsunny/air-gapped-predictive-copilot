@@ -443,6 +443,13 @@ class DownlinkEventModel(BaseModel):
     duration: int
     load: int
 
+class ChatSessionEntry(BaseModel):
+    session_id: str
+    role: str           # 'user' | 'assistant'
+    content: str
+    router_context: Optional[str] = None
+    source: str = 'chitthi'  # 'chitthi' | 'copilot'
+
 # --- Satellite Downlink Schedule Storage ---
 SATELLITE_SCHEDULES_FILE = os.path.join(os.path.dirname(__file__), "satellite_schedules.json")
 
@@ -977,6 +984,95 @@ def export_incident(req: ExportReportRequest):
     </html>
     """
     return {"status": "success", "html": html_content}
+
+# ─────────────────────────────────────────────────────────────
+# Chat Session Persistence (Supabase)
+# ─────────────────────────────────────────────────────────────
+
+@app.post("/api/chat-sessions")
+def save_chat_session(entry: ChatSessionEntry):
+    """Persists a single chat message turn to the Supabase chat_sessions table."""
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/chat_sessions"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+        payload = {
+            "session_id": entry.session_id,
+            "role": entry.role,
+            "content": entry.content,
+            "router_context": entry.router_context,
+            "source": entry.source
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=4.0)
+        if resp.status_code not in [200, 201]:
+            logger.debug(f"[Chat Session] Supabase write failed: {resp.status_code} - {resp.text}")
+            raise HTTPException(status_code=500, detail="Failed to persist chat session")
+        return {"status": "saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat Session] Error saving to Supabase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/chat-sessions")
+def get_chat_sessions(limit: int = 50, source: Optional[str] = None):
+    """Fetches recent chat turns from Supabase, optionally filtered by source."""
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return []
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/chat_sessions"
+        params: Dict[str, str] = {
+            "order": "created_at.desc",
+            "limit": str(min(limit, 200))
+        }
+        if source:
+            params["source"] = f"eq.{source}"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}"
+        }
+        resp = requests.get(url, headers=headers, params=params, timeout=4.0)
+        if resp.status_code == 200:
+            rows = resp.json()
+            # Group by session_id for structured response
+            sessions: Dict[str, list] = {}
+            for row in rows:
+                sid = row["session_id"]
+                if sid not in sessions:
+                    sessions[sid] = []
+                sessions[sid].append(row)
+            # Return as list of sessions, each with messages sorted ascending
+            result = []
+            for sid, msgs in sessions.items():
+                msgs_sorted = sorted(msgs, key=lambda x: x.get("created_at", ""))
+                result.append({
+                    "session_id": sid,
+                    "source": msgs_sorted[0].get("source", "chitthi") if msgs_sorted else "chitthi",
+                    "started_at": msgs_sorted[0].get("created_at", "") if msgs_sorted else "",
+                    "message_count": len(msgs_sorted),
+                    "preview": next((m["content"][:80] for m in msgs_sorted if m["role"] == "user"), "(empty)"),
+                    "messages": msgs_sorted
+                })
+            # Sort sessions newest-first
+            result.sort(key=lambda s: s["started_at"], reverse=True)
+            return result
+        logger.debug(f"[Chat Session] GET failed: {resp.status_code}")
+        return []
+    except Exception as e:
+        logger.error(f"[Chat Session] Error fetching from Supabase: {e}")
+        return []
+
 
 @app.websocket("/ws/telemetry")
 @app.websocket("/api/ws/telemetry")
