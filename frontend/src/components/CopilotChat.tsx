@@ -84,10 +84,15 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
   };
 
   useEffect(() => {
-    fetchSops();
-    fetchCopilotStatus();
+    const initTimer = setTimeout(() => {
+      fetchSops();
+      fetchCopilotStatus();
+    }, 0);
     const interval = setInterval(fetchCopilotStatus, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,6 +124,21 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleClearChat = () => {
+    setMessages([
+      {
+        id: 'welcome',
+        sender: 'copilot',
+        text: "### Live ISRO Air-Gapped NOC Copilot Initialized\n\nI am connected to the local knowledge databases (MPLS underlay policies, SD-WAN tunnel manuals, Delhi memory leak logs). Ask me any network troubleshooting questions, or query a specific router state (e.g. 'Why is SDSC-SHAR failing?').",
+        timestamp: new Date().toISOString(),
+        engine: 'Local Expert Rules (Offline Fallback)'
+      }
+    ]);
+    const newId = `csess_${String(Date.now())}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem('copilot_session_id', newId);
+    setInputValue('');
   };
 
   // Sync router context when active router is selected in parent
@@ -198,6 +218,17 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
           >
             <FolderOpen className="w-3.5 h-3.5" />
             <span>SOP LIBRARY ({sopsList.length})</span>
+          </button>
+          
+          <button
+            type="button"
+            id="btn-clear-chat"
+            onClick={handleClearChat}
+            className="ml-2 bg-noc-danger/10 hover:bg-noc-danger/25 text-noc-danger border border-noc-danger/30 hover:border-noc-danger/50 px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+            title="Wipe conversation state and clear message history cache"
+          >
+            <X className="w-3.5 h-3.5 text-noc-danger" />
+            <span>RESET SESSION</span>
           </button>
           {copilotStatus && (
             <span className="ml-3 bg-noc-card border border-noc-border/50 text-noc-text px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1.5">
