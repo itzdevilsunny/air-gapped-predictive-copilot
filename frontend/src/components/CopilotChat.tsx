@@ -34,6 +34,46 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
   const [uploadMessage, setUploadMessage] = useState('');
   const [copilotStatus, setCopilotStatus] = useState<{ engine: string; knowledge_docs: number } | null>(null);
 
+  // Dialogue History States
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [activeHistorySession, setActiveHistorySession] = useState<any | null>(null);
+
+  const fetchPastSessions = async () => {
+    setShowHistoryModal(true);
+    setLoadingHistory(true);
+    try {
+      const res = await fetch('/api/chat-sessions?source=copilot');
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryList(data);
+      }
+    } catch (err) {
+      console.error('Error fetching chat sessions:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleRestoreSession = (session: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mapped: ChatMessage[] = session.messages.map((m: any) => ({
+      id: m.id || String(m.created_at || Date.now()),
+      sender: m.role === 'user' ? 'user' : 'copilot',
+      text: m.content,
+      timestamp: m.created_at,
+      engine: m.role === 'assistant' ? (m.engine || 'Supabase Load') : undefined
+    }));
+    setMessages(mapped);
+    localStorage.setItem('copilot_session_id', session.session_id);
+    setShowHistoryModal(false);
+    setActiveHistorySession(null);
+  };
+
   // ── Copilot Session Persistence ──
   const [copilotSessionId] = useState<string>(() => {
     const existing = localStorage.getItem('copilot_session_id');
@@ -218,6 +258,20 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
           >
             <FolderOpen className="w-3.5 h-3.5" />
             <span>SOP LIBRARY ({sopsList.length})</span>
+          </button>
+          
+          <button
+            type="button"
+            id="btn-chat-history"
+            onClick={fetchPastSessions}
+            className="ml-2 bg-[#0c1020] hover:bg-noc-border text-noc-text hover:text-noc-primary border border-noc-border px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="View past conversational dialog sessions"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-noc-primary" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span>DIALOG HISTORY</span>
           </button>
           
           <button
@@ -458,6 +512,115 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
               <p className="text-noc-muted whitespace-normal break-words">
                 You can upload any custom SOP or network layout note here. The system will index it, and subsequent copilot prompts will dynamically retrieve the context.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dialogue History Overlay */}
+      {showHistoryModal && (
+        <div className="absolute inset-0 bg-[#05070f]/95 backdrop-blur-sm z-30 flex flex-col border border-noc-border/80 rounded-xl overflow-hidden animate-fade-in select-text">
+          {/* Header */}
+          <div className="bg-[#030611] border-b border-noc-border/50 p-3.5 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-noc-primary" />
+              <span className="font-display text-xs tracking-wider text-noc-primary uppercase font-bold">
+                PAST COPILOT DIALOG LOGS
+              </span>
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => {
+                setShowHistoryModal(false);
+                setActiveHistorySession(null);
+              }}
+              className="text-noc-muted hover:text-noc-text transition-colors"
+              title="Close History"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex-grow flex flex-col md:flex-row gap-4 p-4 min-h-0 font-mono text-[11px]">
+            {/* Left side: Sessions List */}
+            <div className="w-full md:w-1/2 flex flex-col gap-3 border-b md:border-b-0 md:border-r border-noc-border/30 pb-3 md:pb-0 md:pr-3 min-h-0">
+              <span className="text-[9px] text-noc-muted font-bold tracking-wider uppercase block">
+                Stored Chat Sessions:
+              </span>
+              
+              {loadingHistory ? (
+                <div className="text-noc-muted text-center py-6 flex items-center justify-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-noc-primary" />
+                  <span>Loading history...</span>
+                </div>
+              ) : historyList.length === 0 ? (
+                <div className="text-noc-muted text-center py-6">No past sessions found.</div>
+              ) : (
+                <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
+                  {historyList.map((session) => (
+                    <div 
+                      key={session.session_id}
+                      className={`p-2.5 rounded border transition-all cursor-pointer text-left ${
+                        activeHistorySession?.session_id === session.session_id
+                          ? 'bg-noc-primary/10 border-noc-primary text-white shadow-glow-cyan'
+                          : 'bg-[#0c1020]/40 border-noc-border/20 hover:border-noc-border/50 text-noc-text'
+                      }`}
+                      onClick={() => setActiveHistorySession(session)}
+                    >
+                      <div className="flex justify-between items-center text-[10px] font-bold">
+                        <span className="text-noc-primary truncate max-w-[180px]">{session.session_id}</span>
+                        <span className="text-slate-500">{new Date(session.started_at).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1 truncate max-w-full">
+                        Preview: "{session.preview}"
+                      </p>
+                      <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 pt-1.5 border-t border-noc-border/10">
+                        <span>Turns: {session.message_count}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRestoreSession(session);
+                          }}
+                          className="text-noc-primary hover:text-white bg-noc-primary/20 px-2 py-0.5 rounded transition-all font-bold cursor-pointer"
+                        >
+                          RESTORE
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Right side: Session Preview */}
+            <div className="flex-1 bg-[#030611]/50 border border-noc-border/20 rounded-lg p-3 overflow-y-auto flex flex-col min-w-0">
+              <h4 className="text-[10px] font-display text-noc-warning font-bold uppercase tracking-wider mb-2 border-b border-noc-border/25 pb-1">
+                SESSION DETAIL PREVIEW
+              </h4>
+              
+              {activeHistorySession ? (
+                <div className="flex-1 overflow-y-auto flex flex-col gap-3 max-h-[340px]">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {activeHistorySession.messages.map((m: any, mIdx: number) => (
+                    <div key={mIdx} className={`p-2 rounded border text-[10px] ${
+                      m.role === 'user' 
+                        ? 'bg-noc-primary/5 border-noc-primary/20 text-noc-primary self-end max-w-[85%]' 
+                        : 'bg-[#030611] border-noc-border/30 text-noc-text self-start max-w-[85%]'
+                    }`}>
+                      <div className="text-[8px] text-slate-500 font-bold uppercase mb-1">
+                        {m.role === 'user' ? 'Operator' : 'Copilot'}
+                      </div>
+                      <p className="whitespace-pre-wrap">{m.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-500">
+                  <Bot className="w-8 h-8 opacity-20 mb-1" />
+                  <p className="max-w-[200px] leading-normal">Select a chat session on the left to preview dialogue transcripts</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
