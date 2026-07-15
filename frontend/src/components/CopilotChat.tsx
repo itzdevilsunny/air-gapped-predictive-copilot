@@ -8,6 +8,80 @@ interface CopilotChatProps {
   currentRouterId: string | null;
 }
 
+const extractCiscoCommands = (text: string): string[] => {
+  const commands: string[] = [];
+  
+  // 1. Look for markdown code blocks
+  const codeBlockRegex = /```(?:bash|sh|cisco|config)?\n([\s\S]*?)```/g;
+  let match;
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    const block = match[1];
+    block.split("\n").forEach(line => {
+      const clean = line.replace(/^isro-router-[\w-]+#/, "").trim();
+      if (clean && clean.length > 2 && !clean.startsWith("[") && !clean.startsWith("%")) {
+        commands.push(clean);
+      }
+    });
+  }
+  
+  // 2. Also match line-by-line commands outside code blocks if they look like Cisco commands
+  if (commands.length === 0) {
+    const lines = text.split("\n");
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      const promptMatch = trimmed.match(/^(?:isro-router-[\w-]+#|router#|#)?\s*(show\s+|sh\s+|configure\s+terminal|conf\s+t|interface\s+|ip\s+|router\s+|ping\s+|clear\s+ip\s+)(.*)$/i);
+      if (promptMatch) {
+        const cmd = (promptMatch[1] + promptMatch[2]).trim();
+        if (!commands.includes(cmd)) {
+          commands.push(cmd);
+        }
+      }
+    });
+  }
+  
+  return Array.from(new Set(commands)).slice(0, 5);
+};
+
+const CommandShortcutBar: React.FC<{ text: string }> = ({ text }) => {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  
+  const cmds = React.useMemo(() => extractCiscoCommands(text), [text]);
+
+  if (cmds.length === 0) return null;
+
+  const handleCopy = (cmd: string, idx: number) => {
+    navigator.clipboard.writeText(cmd);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 font-mono select-none">
+      <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest block">
+        SUGGESTED CLI COMMAND SHORTCUTS:
+      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {cmds.map((cmd, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => handleCopy(cmd, idx)}
+            className="bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 px-2 py-0.5 rounded text-[9px] font-mono text-amber-300 transition-all flex items-center gap-1 cursor-pointer hover:shadow-glow-yellow"
+            title="Click to copy command to clipboard"
+          >
+            <svg viewBox="0 0 24 24" className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={3}>
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            <span className="truncate max-w-[250px]">{cmd}</span>
+            {copiedIndex === idx && <span className="text-green-400 font-bold text-[8px] ml-1">(Copied!)</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const CopilotChat: React.FC<CopilotChatProps> = ({
   onSendMessage,
   telemetryData,
@@ -350,6 +424,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
                 {/* Sub-meta tags for AI Engine & Retrieved SOPs */}
                 {!isUser && (
                   <div className="flex flex-col gap-1 px-1">
+                    <CommandShortcutBar text={msg.text} />
+                    
                     {msg.engine && (
                       <span className="text-[8px] text-noc-muted font-mono">
                         Engine: <span className="text-noc-primary">{msg.engine}</span>
