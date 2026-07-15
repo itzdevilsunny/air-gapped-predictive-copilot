@@ -148,31 +148,72 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
     }
   }, [consoleLogs]);
 
+  const logPlaybookExecutionToSupabase = async (routerId: string, playbookName: string, consoleLogsArray: string[]) => {
+    try {
+      const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/mitigation_logs";
+      const headers = {
+        "apikey": "sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Authorization": "Bearer sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Content-Type": "application/json"
+      };
+      
+      const routerName = telemetryData[routerId]?.telemetry.router_name || routerId;
+      const logSummary = consoleLogsArray.join("\n");
+
+      const payload = {
+        router_id: routerId,
+        router_name: routerName,
+        status: "resolved",
+        action_taken: `Executed Playbook "${playbookName}". Summary:\n${logSummary}`
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        console.error("Failed to write playbook mitigation log:", await res.text());
+      }
+    } catch (err) {
+      console.error("Failed to sync playbook mitigation log to Supabase:", err);
+    }
+  };
+
   // Execute Playbook Engine
   const startExecution = async () => {
     if (isRunning) return;
     setIsRunning(true);
     setCompleted(false);
     setCurrentStepIndex(0);
-    setConsoleLogs([
+    
+    const initialLogs = [
       `[LOG] ${new Date().toISOString()} - Initializing Playbook Session...`,
       `[LOG] Target Ground Station Node: ${selectedRouter} (${telemetryData[selectedRouter]?.telemetry.router_name || selectedRouter})`,
       `[LOG] Selected Strategy: ${playbook.name}`,
       `[LOG] Establishing encrypted SSH tunnel session to router...`,
       `[SSH] Connection established successfully. Starting terminal shell.\n`
-    ]);
+    ];
+    setConsoleLogs(initialLogs);
 
+    let runLogs = [...initialLogs];
     let stepIdx = 0;
+    
     const runNextStep = () => {
       if (stepIdx >= playbook.steps.length) {
         // Complete execution
         setTimeout(async () => {
-          setConsoleLogs(prev => [
-            ...prev,
+          const completionLogs = [
             `\n[LOG] Playbook sequence executed successfully. All parameters within bounds.`,
             `[LOG] Sending commit signal... Configuration updated.`,
             `[LOG] Closing terminal session. Closed SSH tunnel.`
+          ];
+          setConsoleLogs(prev => [
+            ...prev,
+            ...completionLogs
           ]);
+          runLogs = [...runLogs, ...completionLogs];
+          
           setCompleted(true);
           setIsRunning(false);
           setCurrentStepIndex(-1);
@@ -183,6 +224,9 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
           } catch (e) {
             console.error("Mitigation callback failed", e);
           }
+
+          // Async log to Supabase mitigation_logs
+          await logPlaybookExecutionToSupabase(selectedRouter, playbook.name, runLogs);
         }, 1000);
         return;
       }
@@ -191,10 +235,12 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
       setCurrentStepIndex(stepIdx);
 
       // Print command prompt
+      const promptLog = `isro-router-${selectedRouter.toLowerCase()}# ${step.cmd}`;
       setConsoleLogs(prev => [
         ...prev,
-        `isro-router-${selectedRouter.toLowerCase()}# ${step.cmd}`
+        promptLog
       ]);
+      runLogs.push(promptLog);
 
       // Delay output
       setTimeout(() => {
@@ -203,6 +249,7 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
           ...step.expectedOutput,
           "" // blank line
         ]);
+        runLogs = [...runLogs, ...step.expectedOutput, ""];
         stepIdx++;
         runNextStep();
       }, step.durationMs);
