@@ -38,7 +38,8 @@ import {
   CheckCircle2,
   Timer,
   Mic,
-  MicOff
+  MicOff,
+  FileDown
 } from 'lucide-react';
 
 // ─── Mission Mode ─────────────────────────────────────────────────────────────
@@ -499,6 +500,311 @@ export const App: React.FC = () => {
       setAutoHealEnabled(!nextVal); // revert
     }
   }, [autoHealEnabled, isMockMode, pushEvent]);
+
+  const handleExportHandoffReport = useCallback(() => {
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) {
+      alert('Pop-up blocker active. Please allow popups to export shift reports.');
+      return;
+    }
+
+    const nowUTC = new Date().toUTCString();
+    
+    // Construct router details rows
+    const routerRows = Object.entries(telemetryData).map(([id, state]) => {
+      const isDown = state.telemetry.link_status === 0;
+      const isCongested = state.telemetry.latency > 150 || state.telemetry.packet_loss > 2.0;
+      const statusLabel = isDown ? "OUTAGE" : isCongested ? "DEGRADED" : "NOMINAL";
+      const statusColor = isDown ? "#f43f5e" : isCongested ? "#f59e0b" : "#10b981";
+      const targetSla = id === "ISTRAC-BGL" || id === "SDSC-SHAR" ? 99.99 : 99.95;
+      
+      let currentSla = targetSla;
+      if (isDown) currentSla = parseFloat((targetSla - 0.12).toFixed(3));
+      else if (isCongested) currentSla = parseFloat((targetSla - 0.04).toFixed(3));
+
+      return `
+        <tr>
+          <td style="font-weight: bold; font-family: monospace;">${id}</td>
+          <td>${state.telemetry.router_name}</td>
+          <td style="color: ${statusColor}; font-weight: bold;">${statusLabel}</td>
+          <td>${targetSla}% / <span style="font-weight: bold; color: ${currentSla < targetSla ? '#f43f5e' : '#10b981'}">${currentSla}%</span></td>
+          <td>${state.telemetry.latency} ms</td>
+          <td>${state.telemetry.packet_loss}%</td>
+          <td>${state.telemetry.cpu}%</td>
+          <td style="font-weight: bold; color: ${state.analysis.failure_risk > 70 ? '#f43f5e' : state.analysis.failure_risk > 40 ? '#f59e0b' : '#10b981'}">${state.analysis.failure_risk}%</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Construct active alerts rows
+    const alertRows = alerts.length > 0 
+      ? alerts.map(a => `
+        <tr>
+          <td style="font-family: monospace;">${a.router_id}</td>
+          <td>${a.router_name}</td>
+          <td style="color: #f43f5e; font-weight: bold;">${a.risk_score}%</td>
+          <td>${a.root_cause}</td>
+          <td style="font-family: monospace;">${a.timestamp}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5" style="text-align: center; color: #10b981; font-weight: bold;">NO ACTIVE INCIDENTS / SYSTEMS NOMINAL</td></tr>';
+
+    // Construct satellite rows
+    const satRows = satelliteData 
+      ? Object.values(satelliteData.satellites).map(s => `
+        <tr>
+          <td style="font-weight: bold;">${s.name} (${s.type})</td>
+          <td>${s.altitude} km</td>
+          <td>${s.velocity} km/s</td>
+          <td>${s.snr} dB</td>
+          <td>${s.packet_loss}%</td>
+          <td>${s.los ? 'IN VIEW' : 'LOSS OF SIGNAL'}</td>
+          <td style="font-family: monospace;">${s.lock_node || 'NONE'}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="7" style="text-align: center; color: #64748b;">No satellite segment data active</td></tr>';
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>ISRO PRED-NOC Shift Handover Report</title>
+        <style>
+          body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            color: #1e293b;
+            line-height: 1.5;
+            padding: 30px;
+            background-color: #ffffff;
+          }
+          .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px double #0f172a;
+            padding-bottom: 20px;
+            margin-bottom: 25px;
+          }
+          .logo-text {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: #0f172a;
+          }
+          .sub-logo {
+            font-size: 10px;
+            font-family: monospace;
+            color: #475569;
+            margin-top: 4px;
+            letter-spacing: 1px;
+          }
+          .meta-box {
+            text-align: right;
+            font-size: 11px;
+            font-family: monospace;
+            color: #475569;
+          }
+          .title {
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            background: #f1f5f9;
+            padding: 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+          }
+          h3 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #94a3b8;
+            padding-bottom: 4px;
+            margin-top: 30px;
+            margin-bottom: 12px;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-bottom: 20px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1;
+            padding: 8px 10px;
+            text-align: left;
+          }
+          th {
+            background-color: #f8fafc;
+            color: #334155;
+            font-weight: bold;
+          }
+          .kpi-grid {
+            display: grid;
+            grid-template-cols: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+          }
+          .kpi-card {
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 12px;
+            background-color: #f8fafc;
+            text-align: center;
+          }
+          .kpi-title {
+            font-size: 9px;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: bold;
+          }
+          .kpi-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 4px;
+            font-family: monospace;
+          }
+          .sign-section {
+            margin-top: 60px;
+            display: grid;
+            grid-template-cols: 1fr 1fr;
+            gap: 50px;
+          }
+          .sign-box {
+            border-top: 1px solid #0f172a;
+            padding-top: 8px;
+            font-size: 11px;
+            text-align: center;
+            font-weight: bold;
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header-container">
+          <div>
+            <div class="logo-text">ISRO PRED-NOC</div>
+            <div class="sub-logo">PREDICTIVE MISSION OPERATIONS COMMAND CENTER</div>
+          </div>
+          <div class="meta-box">
+            <div>REPORT ID: SH-${Date.now().toString().slice(-6)}</div>
+            <div>GENERATED: ${nowUTC}</div>
+            <div>SECURITY LEVEL: RESTRICTED / INTERNAL ONLY</div>
+          </div>
+        </div>
+
+        <div class="title">Shift Handover & NOC SLA Compliance Report</div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">NOC Health Index</div>
+            <div class="kpi-value" style="color: ${healthScore > 75 ? '#10b981' : healthScore > 50 ? '#f59e0b' : '#f43f5e'}">${healthScore}/100</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Active Alarms</div>
+            <div class="kpi-value" style="color: ${alerts.length > 0 ? '#f43f5e' : '#10b981'}">${alerts.length}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Mean Resolution Speed (MTTR)</div>
+            <div class="kpi-value">${mttrDisplay}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Solar Flare Outage</div>
+            <div class="kpi-value" style="color: ${satelliteData?.solar_flare ? '#8b5cf6' : '#10b981'}">${satelliteData?.solar_flare ? 'ACTIVE BLACKOUT' : 'NONE'}</div>
+          </div>
+        </div>
+
+        <h3>1. Underlay Router Node SLA Status</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Node Name</th>
+              <th>Status</th>
+              <th>Target / Current SLA</th>
+              <th>Latency</th>
+              <th>Packet Loss</th>
+              <th>CPU Load</th>
+              <th>Failure Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${routerRows}
+          </tbody>
+        </table>
+
+        <h3>2. Active SLA Violations & Root Cause Incidents</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Router ID</th>
+              <th>Node Name</th>
+              <th>Failure Risk</th>
+              <th>Root Cause Analysis</th>
+              <th>Detected Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${alertRows}
+          </tbody>
+        </table>
+
+        <h3>3. Space Segment Satellite Transponder Telemetry</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Satellite (Band)</th>
+              <th>Altitude</th>
+              <th>Velocity</th>
+              <th>SNR Level</th>
+              <th>Packet Loss</th>
+              <th>Visibility status</th>
+              <th>Ground lock Node</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${satRows}
+          </tbody>
+        </table>
+
+        <div class="sign-section">
+          <div class="sign-box">
+            OUTGOING OPERATOR SIGNATURE<br/>
+            <span style="font-weight: normal; font-size: 9px; color: #64748b; font-family: monospace;">Time logged: ______________ UTC</span>
+          </div>
+          <div class="sign-box">
+            INCOMING OPERATOR SIGNATURE<br/>
+            <span style="font-weight: normal; font-size: 9px; color: #64748b; font-family: monospace;">Time logged: ______________ UTC</span>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    reportWindow.document.write(htmlContent);
+    reportWindow.document.close();
+  }, [telemetryData, alerts, satelliteData, healthScore, mttrDisplay]);
+
+
 
 
 
@@ -1571,6 +1877,16 @@ export const App: React.FC = () => {
                 <Mic className="w-3.5 h-3.5" />
               )}
               <span>CHITTHI: {voiceListening ? 'LISTENING…' : 'VOICE'}</span>
+            </button>
+
+            {/* Export Shift Report */}
+            <button
+              onClick={handleExportHandoffReport}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded border text-noc-primary bg-noc-primary/10 border-noc-primary/30 hover:bg-noc-primary/20 hover:text-noc-text transition-all duration-300 font-bold cursor-pointer"
+              title="Export shift handover report as official print-ready document"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>SHIFT REPORT</span>
             </button>
 
             {isMockMode ? (
