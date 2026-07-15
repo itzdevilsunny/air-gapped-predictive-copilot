@@ -1813,44 +1813,71 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Command Center Header */}
-      <header className="bg-[#030611] border-b border-noc-border/80 px-6 py-4 flex justify-between items-center z-30 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-noc-primary/10 rounded border border-noc-primary/30">
-            <Radio className="w-6 h-6 text-noc-primary animate-pulse" />
+      <header className="bg-[#030611] border-b border-noc-border/80 px-6 py-3 flex flex-col gap-3.5 z-30 shadow-md">
+        {/* Row 1: Brand & Core Status */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-noc-primary/10 rounded border border-noc-primary/30">
+              <Radio className="w-6 h-6 text-noc-primary animate-pulse" />
+            </div>
+            <div>
+              <h1 className="font-display font-black text-base md:text-lg tracking-widest text-noc-text flex items-center gap-2">
+                ISRO PRED-NOC
+                <span className="text-[9px] bg-noc-primary/20 text-noc-primary px-1.5 py-0.5 rounded font-mono font-normal tracking-normal uppercase border border-noc-primary/30">
+                  PREDICTIVE CORE v1.0
+                </span>
+              </h1>
+              <p className="text-[9px] md:text-[10px] text-noc-muted font-mono tracking-wider">AIR-GAPPED OPERATIONS & UNDERLAY QoS COPILOT</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display font-black text-lg tracking-widest text-noc-text flex items-center gap-2">
-              ISRO PRED-NOC
-              <span className="text-[10px] bg-noc-primary/20 text-noc-primary px-1.5 py-0.5 rounded font-mono font-normal tracking-normal uppercase border border-noc-primary/30">
-                PREDICTIVE CORE v1.0
-              </span>
-            </h1>
-            <p className="text-[10px] text-noc-muted font-mono tracking-wider">AIR-GAPPED OPERATIONS & UNDERLAY QoS COPILOT</p>
+
+          <div className="flex flex-wrap items-center gap-4">
+            {/* ── Feature 2: Health Gauge ────────────────────────────────────── */}
+            <div>
+              <HealthGauge
+                score={healthScore}
+                alertCount={alerts.length}
+                solarFlare={!!satelliteData?.solar_flare}
+                healActive={healActive}
+              />
+            </div>
+            
+            <div className="hidden md:flex items-center gap-2 text-xs font-mono text-noc-muted border-r border-noc-border/40 pr-4">
+              <Clock className="w-4 h-4 text-noc-primary" />
+              <span>SYSTEM TIME (UTC):</span>
+              <span className="text-noc-text font-bold">{utcTime || 'SYS_SYNCING...'}</span>
+            </div>
+
+            {/* Trigger Failure Injection Deck */}
+            <button
+              id="btn-trigger-deck"
+              onClick={() => setIsSimOpen(true)}
+              className="bg-noc-warning/20 hover:bg-noc-warning/35 text-noc-warning border border-noc-warning/45 px-3 py-1.5 rounded text-[10px] font-mono font-bold transition-all duration-200 hover:shadow-glow-warning flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>SIMULATION DECK</span>
+            </button>
+
+            {/* Secure Logout */}
+            <button
+              onClick={() => {
+                localStorage.removeItem('noc_is_logged_in');
+                setIsLoggedIn(false);
+              }}
+              className="bg-noc-card border border-noc-border hover:bg-noc-border hover:text-noc-text text-noc-muted px-3 py-1.5 rounded text-[10px] font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              LOGOUT
+            </button>
           </div>
         </div>
 
-        {/* Tactical Info Deck (UTC Time, WS Status, Sim deck trigger) */}
-        <div className="flex items-center gap-6">
-          {/* ── Feature 2: Health Gauge ────────────────────────────────────── */}
-          <div className="hidden xl:block">
-            <HealthGauge
-              score={healthScore}
-              alertCount={alerts.length}
-              solarFlare={!!satelliteData?.solar_flare}
-              healActive={healActive}
-            />
-          </div>
-          <div className="hidden lg:flex items-center gap-2 text-xs font-mono text-noc-muted border-r border-noc-border/40 pr-6">
-            <Clock className="w-4 h-4 text-noc-primary" />
-            <span>SYSTEM TIME (UTC):</span>
-            <span className="text-noc-text font-bold">{utcTime || 'SYS_SYNCING...'}</span>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-mono">
+        {/* Row 2: Operational Controls & Tab Switchers */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-2.5 border-t border-noc-border/20">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
             {/* Closed-Loop Auto-Heal Toggle */}
             <button
               onClick={toggleAutoHeal}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition-all duration-300 font-bold ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border transition-all duration-300 font-bold cursor-pointer ${
                 autoHealEnabled
                   ? 'text-noc-success bg-noc-success/15 border-noc-success/40 hover:bg-noc-success/25 shadow-glow-green animate-pulse-slow'
                   : 'text-noc-muted bg-noc-card border-noc-border hover:bg-noc-border hover:text-noc-text'
@@ -1865,7 +1892,7 @@ export const App: React.FC = () => {
             <button
               id="chitthi-mic-btn"
               onClick={toggleVoiceAssistant}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition-all duration-300 font-bold ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border transition-all duration-300 font-bold cursor-pointer ${
                 voiceListening
                   ? 'text-noc-warning bg-noc-warning/15 border-noc-warning/50 shadow-[0_0_12px_rgba(251,191,36,0.4)] animate-pulse'
                   : 'text-noc-muted bg-noc-card border-noc-border hover:bg-noc-border hover:text-noc-text'
@@ -1883,7 +1910,7 @@ export const App: React.FC = () => {
             {/* Export Shift Report */}
             <button
               onClick={handleExportHandoffReport}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded border text-noc-primary bg-noc-primary/10 border-noc-primary/30 hover:bg-noc-primary/20 hover:text-noc-text transition-all duration-300 font-bold cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-noc-primary bg-noc-primary/10 border-noc-primary/30 hover:bg-noc-primary/20 hover:text-noc-text transition-all duration-300 font-bold cursor-pointer"
               title="Export shift handover report as official print-ready document"
             >
               <FileDown className="w-3.5 h-3.5" />
@@ -1891,25 +1918,25 @@ export const App: React.FC = () => {
             </button>
 
             {isMockMode ? (
-              <span id="ws-status-mock" className="flex items-center gap-1.5 text-noc-primary bg-noc-primary/10 border border-noc-primary/35 px-2.5 py-1 rounded shadow-glow-cyan">
+              <span id="ws-status-mock" className="flex items-center gap-1.5 text-noc-primary bg-noc-primary/10 border border-noc-primary/35 px-2.5 py-1.5 rounded shadow-glow-cyan">
                 <Radio className="w-3.5 h-3.5 animate-pulse" /> TELEMETRY: SIMULATION (SANDBOX)
               </span>
             ) : isConnected ? (
-              <span id="ws-status-online" className="flex items-center gap-1.5 text-noc-success bg-noc-success/10 border border-noc-success/35 px-2.5 py-1 rounded">
+              <span id="ws-status-online" className="flex items-center gap-1.5 text-noc-success bg-noc-success/10 border border-noc-success/35 px-2.5 py-1.5 rounded">
                 <Wifi className="w-3.5 h-3.5" /> TELEMETRY: LIVE
               </span>
             ) : (
-              <span id="ws-status-offline" className="flex items-center gap-1.5 text-noc-danger bg-noc-danger/10 border border-noc-danger/35 px-2.5 py-1 rounded animate-pulse">
+              <span id="ws-status-offline" className="flex items-center gap-1.5 text-noc-danger bg-noc-danger/10 border border-noc-danger/35 px-2.5 py-1.5 rounded animate-pulse">
                 <WifiOff className="w-3.5 h-3.5" /> TELEMETRY: RETRYING
               </span>
             )}
           </div>
 
           {/* Dashboard Navigation Group */}
-          <div className="flex items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
+          <div className="flex flex-wrap items-center gap-1 border border-noc-border rounded p-1 bg-[#060a16]">
             <button
               onClick={(e) => handleTabClick('all', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
                 activeTab === 'all'
                   ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
                   : 'bg-noc-bg hover:bg-noc-primary/20 text-noc-muted hover:text-noc-primary'
@@ -1920,7 +1947,7 @@ export const App: React.FC = () => {
             <span className="text-noc-border px-1">|</span>
             <button
               onClick={(e) => handleTabClick('ph1', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'ph1'
                   ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
                   : 'hover:bg-noc-primary/20 text-noc-primary'
@@ -1931,7 +1958,7 @@ export const App: React.FC = () => {
             <span className="text-noc-border px-1">|</span>
             <button
               onClick={(e) => handleTabClick('ph6', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'ph6'
                   ? 'bg-noc-primary/25 text-noc-primary shadow-glow-cyan'
                   : 'hover:bg-noc-primary/20 text-noc-primary'
@@ -1943,7 +1970,7 @@ export const App: React.FC = () => {
             <button
               id="tab-forecast"
               onClick={(e) => handleTabClick('forecast', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'forecast'
                   ? 'bg-purple-500/25 text-purple-300 shadow-[0_0_8px_rgba(168,85,247,0.4)]'
                   : 'hover:bg-purple-500/20 text-purple-400/70 hover:text-purple-300'
@@ -1955,7 +1982,7 @@ export const App: React.FC = () => {
             <button
               id="tab-sitrep"
               onClick={(e) => handleTabClick('sitrep', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'sitrep'
                   ? 'bg-emerald-500/25 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.4)]'
                   : 'hover:bg-emerald-500/20 text-emerald-400/70 hover:text-emerald-300'
@@ -1967,7 +1994,7 @@ export const App: React.FC = () => {
             <button
               id="tab-bigboard"
               onClick={(e) => handleTabClick('bigboard', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'bigboard'
                   ? 'bg-cyan-500/25 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.4)]'
                   : 'hover:bg-cyan-500/20 text-cyan-400/70 hover:text-cyan-300'
@@ -1979,7 +2006,7 @@ export const App: React.FC = () => {
             <button
               id="tab-playbooks"
               onClick={(e) => handleTabClick('playbooks', e)}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase ${
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all text-center uppercase cursor-pointer ${
                 activeTab === 'playbooks'
                   ? 'bg-amber-500/25 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
                   : 'hover:bg-amber-500/20 text-amber-400/70 hover:text-amber-300'
@@ -1988,27 +2015,6 @@ export const App: React.FC = () => {
               🛠️ PLAYBOOKS
             </button>
           </div>
-
-          {/* Trigger Failure Injection Deck */}
-          <button
-            id="btn-trigger-deck"
-            onClick={() => setIsSimOpen(true)}
-            className="bg-noc-warning/20 hover:bg-noc-warning/35 text-noc-warning border border-noc-warning/45 px-3 py-1.5 rounded text-xs font-mono font-bold transition-all duration-200 hover:shadow-glow-warning flex items-center gap-1.5"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>SIMULATION DECK</span>
-          </button>
-
-          {/* Secure Logout */}
-          <button
-            onClick={() => {
-              localStorage.removeItem('noc_is_logged_in');
-              setIsLoggedIn(false);
-            }}
-            className="bg-noc-card border border-noc-border hover:bg-noc-border hover:text-noc-text text-noc-muted px-3 py-1.5 rounded text-xs font-mono font-bold transition-all flex items-center gap-1.5"
-          >
-            LOGOUT
-          </button>
         </div>
       </header>
 
