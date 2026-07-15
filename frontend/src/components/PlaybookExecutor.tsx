@@ -116,6 +116,16 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
 
   // Load custom playbooks from Supabase (mappings for 'title' column)
   const fetchCustomPlaybooks = async () => {
+    const localSavedStr = localStorage.getItem("isro_custom_playbooks");
+    let localSaved: Playbook[] = [];
+    if (localSavedStr) {
+      try {
+        localSaved = JSON.parse(localSavedStr);
+      } catch (e) {
+        console.error("Failed to parse local playbooks:", e);
+      }
+    }
+
     try {
       const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/custom_playbooks";
       const headers = {
@@ -126,26 +136,44 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
       if (res.ok) {
         const data = await res.json();
         // Map Database column 'title' to Frontend state field 'name'
-        const mapped = data.map((row: any) => ({
+        const mapped = data.map((row: Record<string, unknown>) => ({
           id: String(row.id),
-          name: row.title || row.name || "Custom Playbook",
-          description: row.description || "",
-          steps: row.steps || []
+          name: (row.title || row.name || "Custom Playbook") as string,
+          description: (row.description || "") as string,
+          steps: (row.steps || []) as PlaybookStep[]
         }));
-        setCustomPlaybooks(mapped);
-        setDbError(false);
-      } else if (res.status === 404) {
-        setDbError(true);
+        
+        // Merge Supabase and local storage playbooks
+        const merged = [...mapped];
+        localSaved.forEach(localP => {
+          if (!merged.some(m => m.id === localP.id)) {
+            merged.push(localP);
+          }
+        });
+        setTimeout(() => {
+          setCustomPlaybooks(merged);
+          setDbError(false);
+        }, 0);
+      } else {
+        setTimeout(() => {
+          setCustomPlaybooks(localSaved);
+          if (res.status === 404) {
+            setDbError(true);
+          }
+        }, 0);
       }
     } catch (err) {
-      console.warn("[Playbooks] Supabase fetch warning: custom_playbooks table may not exist.", err);
-      setDbError(true);
+      console.warn("[Playbooks] Supabase fetch warning: custom_playbooks table may not exist, loading offline storage.", err);
+      setTimeout(() => {
+        setCustomPlaybooks(localSaved);
+        setDbError(true);
+      }, 0);
     }
   };
 
   const fetchMitigationLogs = async () => {
     try {
-      setIsLogsLoading(true);
+      setTimeout(() => setIsLogsLoading(true), 0);
       const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/mitigation_logs?order=created_at.desc&limit=15";
       const headers = {
         "apikey": "sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
@@ -154,12 +182,12 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
       const res = await fetch(url, { headers });
       if (res.ok) {
         const data = await res.json();
-        setMitigationLogs(data);
+        setTimeout(() => setMitigationLogs(data), 0);
       }
     } catch (err) {
       console.error("Failed to fetch mitigation logs from Supabase:", err);
     } finally {
-      setIsLogsLoading(false);
+      setTimeout(() => setIsLogsLoading(false), 0);
     }
   };
 
@@ -319,6 +347,33 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
       steps: designerPlaybook.steps
     };
     
+    // Save to local storage first
+    try {
+      const localSavedStr = localStorage.getItem("isro_custom_playbooks");
+      let localSaved: Playbook[] = [];
+      if (localSavedStr) {
+        localSaved = JSON.parse(localSavedStr);
+      }
+      
+      const newPlaybook = {
+        id: String(numericId),
+        name: designerPlaybook.name,
+        description: designerPlaybook.description,
+        steps: designerPlaybook.steps
+      };
+      
+      const existingIdx = localSaved.findIndex(p => p.id === String(numericId));
+      if (existingIdx >= 0) {
+        localSaved[existingIdx] = newPlaybook;
+      } else {
+        localSaved.push(newPlaybook);
+      }
+      localStorage.setItem("isro_custom_playbooks", JSON.stringify(localSaved));
+      setSaveStatus("Saved locally!");
+    } catch (e) {
+      console.error("Local save failed:", e);
+    }
+    
     try {
       const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/custom_playbooks";
       const headers = {
@@ -333,18 +388,18 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        setSaveStatus("Saved successfully!");
+        setSaveStatus("Saved successfully to database!");
         setDesignerPlaybook(prev => ({ ...prev, id: String(numericId) }));
         await fetchCustomPlaybooks();
         setTimeout(() => setSaveStatus(""), 3500);
       } else {
         const err = await res.text();
         console.error("Save failed:", err);
-        setSaveStatus("Failed: DB schema mismatch or permission denied");
+        setSaveStatus("Saved locally (DB Offline / Schema mismatch)");
       }
     } catch (err) {
       console.error("Supabase write exception:", err);
-      setSaveStatus("Connection error");
+      setSaveStatus("Saved locally (DB Connection error)");
     }
   };
 
@@ -377,9 +432,9 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
               id: "custom-" + Date.now(),
               name: parsed.name,
               description: parsed.description || "",
-              steps: parsed.steps.map((s: any) => ({
-                cmd: s.cmd || "",
-                expectedOutput: Array.isArray(s.expectedOutput) ? s.expectedOutput : [s.expectedOutput || ""],
+              steps: parsed.steps.map((s: Record<string, unknown>) => ({
+                cmd: (s.cmd || "") as string,
+                expectedOutput: Array.isArray(s.expectedOutput) ? s.expectedOutput : [String(s.expectedOutput || "")],
                 durationMs: Number(s.durationMs) || 1200
               }))
             });
@@ -395,11 +450,11 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
   };
 
   // Editor step field handlers
-  const handleStepChange = (index: number, field: keyof PlaybookStep, value: any) => {
+  const handleStepChange = (index: number, field: keyof PlaybookStep, value: string | number) => {
     setDesignerPlaybook(prev => {
       const nextSteps = [...prev.steps];
       if (field === "expectedOutput") {
-        nextSteps[index] = { ...nextSteps[index], expectedOutput: value.split("\n") };
+        nextSteps[index] = { ...nextSteps[index], expectedOutput: String(value).split("\n") };
       } else {
         nextSteps[index] = { ...nextSteps[index], [field]: value };
       }
