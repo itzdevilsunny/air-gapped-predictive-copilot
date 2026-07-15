@@ -12,6 +12,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+import requests
+from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
@@ -19,6 +21,9 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Load root environment file
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 # InfluxDB v2 client
 try:
@@ -113,6 +118,44 @@ def init_db():
         logger.info("Phase 1 database initialized.")
 
 
+def sync_telemetry_to_supabase_p1(snapshot_data: dict, preds: dict, anoms: dict):
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/telemetry_snapshots"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        payload = []
+        for rid, row in snapshot_data.items():
+            pred = preds.get(rid, {})
+            risk_score = float(pred.get("risk_score", 0.0))
+            anom = anoms.get(rid, {})
+            is_anomaly = bool(anom.get("is_anomaly", False))
+            
+            payload.append({
+                "router_id": rid,
+                "router_name": row.get("router_name", rid),
+                "cpu": float(row.get("cpu", 0.0)),
+                "latency": float(row.get("latency", 0.0)),
+                "packet_loss": float(row.get("packet_loss", 0.0)),
+                "jitter": float(row.get("jitter", 0.0)),
+                "bandwidth": float(row.get("bandwidth", 0.0)),
+                "link_status": int(row.get("link_status", 1)),
+                "failure_risk": risk_score,
+                "is_anomaly": is_anomaly
+            })
+        resp = requests.post(url, headers=headers, json=payload, timeout=3.0)
+        if resp.status_code not in [200, 201]:
+            logger.debug(f"[Supabase Sync P1] Failed to sync telemetry: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        logger.debug(f"[Supabase Sync P1] Telemetry sync error: {e}")
+
+
 # ─── Background telemetry broadcast task ──────────────────────────────────────
 async def broadcast_live_data():
     """Polls SQLite every 2 seconds and pushes to WebSocket clients."""
@@ -128,6 +171,9 @@ async def broadcast_live_data():
                 rid = d["router_id"]
                 snapshot[rid] = d
                 _latest_snapshots[rid] = d
+
+            # Async sync to Supabase in separate thread to prevent blocking
+            asyncio.create_task(asyncio.to_thread(sync_telemetry_to_supabase_p1, snapshot, _cached_predictions, _cached_anomalies))
 
             if _ws_clients:
                 payload = {"type": "live_update", "data": snapshot}
@@ -780,7 +826,7 @@ def copilot_status():
     
     engine = "Local Expert Engine"
     if gemini_active:
-        engine = "Gemini 2.5 Flash"
+        engine = "Gemini 3.5 Flash"
     elif ollama_available:
         engine = "Ollama LLM"
         
@@ -788,7 +834,7 @@ def copilot_status():
         "ollama_available": ollama_available or gemini_active,
         "ollama_status": "Gemini API Active" if gemini_active else ollama_status,
         "ollama_url": "https://generativelanguage.googleapis.com" if gemini_active else phase5_copilot.OLLAMA_URL,
-        "ollama_model": "gemini-2.5-flash" if gemini_active else phase5_copilot.OLLAMA_MODEL,
+        "ollama_model": "gemini-3.5-flash" if gemini_active else phase5_copilot.OLLAMA_MODEL,
         "knowledge_docs": len(index.docs),
         "engine": engine,
         "status": "ready"

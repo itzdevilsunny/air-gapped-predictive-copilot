@@ -43,7 +43,7 @@ def query_gemini(prompt: str, api_key: str = GEMINI_API_KEY) -> Optional[str]:
     if not api_key:
         return None
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [{
@@ -730,7 +730,7 @@ def process_query(query: str, router_context: Optional[str] = None, history: Opt
         gemini_response = query_gemini(prompt)
         if gemini_response:
             answer = gemini_response
-            engine_used = "Gemini 2.5 Flash"
+            engine_used = "Gemini 3.5 Flash"
 
     # 4.2. Try local Ollama if Gemini failed or not configured
     if not answer and ollama_available:
