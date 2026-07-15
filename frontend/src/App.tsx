@@ -360,6 +360,36 @@ export const App: React.FC = () => {
     prevSolarNotifRef.current = isFlareActive;
   }, [satelliteData]);
 
+  // ── Feature 17: Periodic Health Score Sync ─────────────────────────────────
+  useEffect(() => {
+    const uploadSnapshot = async () => {
+      try {
+        await fetch(`${BACKEND_URL}/api/health-history`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            health_score: healthScore,
+            active_alerts: alerts.length,
+            solar_flare: !!satelliteData?.solar_flare
+          })
+        });
+      } catch (err) {
+        console.error('[Health Sync] Failed to save health snapshot:', err);
+      }
+    };
+
+    // Delay first run slightly, then repeat every 30 seconds
+    const initialTimer = setTimeout(uploadSnapshot, 5000);
+    const interval = setInterval(uploadSnapshot, 30000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [healthScore, alerts.length, satelliteData?.solar_flare]);
+
+
+
   // ── Feature 4: Mission Mode ────────────────────────────────────────────────
   const [healActive, setHealActive] = useState(false);
   const deriveMissionMode = useCallback((): MissionMode => {

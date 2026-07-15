@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Uplo
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -449,6 +450,11 @@ class ChatSessionEntry(BaseModel):
     content: str
     router_context: Optional[str] = None
     source: str = 'chitthi'  # 'chitthi' | 'copilot'
+
+class HealthHistoryEntry(BaseModel):
+    health_score: int
+    active_alerts: int
+    solar_flare: bool
 
 # --- Satellite Downlink Schedule Storage ---
 SATELLITE_SCHEDULES_FILE = os.path.join(os.path.dirname(__file__), "satellite_schedules.json")
@@ -1072,6 +1078,85 @@ def get_chat_sessions(limit: int = 50, source: Optional[str] = None):
     except Exception as e:
         logger.error(f"[Chat Session] Error fetching from Supabase: {e}")
         return []
+
+
+
+HEALTH_HISTORY_FALLBACK = []
+
+@app.post("/api/health-history")
+def save_health_history(entry: HealthHistoryEntry):
+    """Persists a network health score snapshot to Supabase, or falls back to in-memory store."""
+    global HEALTH_HISTORY_FALLBACK
+    
+    # Save to in-memory fallback
+    point = {
+        "health_score": entry.health_score,
+        "active_alerts": entry.active_alerts,
+        "solar_flare": entry.solar_flare,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    HEALTH_HISTORY_FALLBACK.append(point)
+    if len(HEALTH_HISTORY_FALLBACK) > 100:
+        HEALTH_HISTORY_FALLBACK.pop(0)
+
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return {"status": "saved_locally", "count": len(HEALTH_HISTORY_FALLBACK)}
+
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/health_history"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+        payload = {
+            "health_score": entry.health_score,
+            "active_alerts": entry.active_alerts,
+            "solar_flare": entry.solar_flare
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=3.0)
+        if resp.status_code not in [200, 201]:
+            logger.debug(f"[Health History] Supabase write failed: {resp.status_code} - {resp.text}")
+            return {"status": "saved_locally_error", "detail": "Supabase rejected write"}
+        return {"status": "saved"}
+    except Exception as e:
+        logger.error(f"[Health History] Error saving to Supabase: {e}")
+        return {"status": "saved_locally_error", "detail": str(e)}
+
+
+@app.get("/api/health-history")
+def get_health_history(limit: int = 60):
+    """Fetches recent health score history from Supabase, falling back to local history."""
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    if not supabase_url or not supabase_key:
+        # Sort newest-first or return as is. Let's return chronological (oldest to newest) for chart plotting.
+        return sorted(HEALTH_HISTORY_FALLBACK, key=lambda x: x["created_at"])[-limit:]
+
+    try:
+        url = f"{supabase_url.rstrip('/')}/rest/v1/health_history"
+        params = {
+            "order": "created_at.desc",
+            "limit": str(min(limit, 200))
+        }
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}"
+        }
+        resp = requests.get(url, headers=headers, params=params, timeout=3.0)
+        if resp.status_code == 200:
+            rows = resp.json()
+            # Return in chronological order (oldest to newest) for charts
+            rows.reverse()
+            return rows
+        logger.debug(f"[Health History] Supabase GET failed: {resp.status_code}")
+    except Exception as e:
+        logger.error(f"[Health History] Error fetching from Supabase: {e}")
+    
+    return sorted(HEALTH_HISTORY_FALLBACK, key=lambda x: x["created_at"])[-limit:]
 
 
 @app.websocket("/ws/telemetry")
