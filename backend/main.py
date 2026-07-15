@@ -174,7 +174,76 @@ def sync_telemetry_to_supabase(enriched_data: dict):
     except Exception as e:
         logger.debug(f"[Supabase Sync] Telemetry sync error: {e}")
 
-def sync_mitigation_to_supabase(router_id: str, router_name: str):
+def match_playbook_for_alert(router_id: str, root_cause: str) -> dict:
+    """Queries Supabase custom playbooks and finds a match for the failure type.
+    Falls back to a default playbook sequence if none match.
+    """
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    
+    custom_playbooks = []
+    if supabase_url and supabase_key:
+        try:
+            url = f"{supabase_url.rstrip('/')}/rest/v1/custom_playbooks"
+            headers = {
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}"
+            }
+            resp = requests.get(url, headers=headers, timeout=3.0)
+            if resp.status_code == 200:
+                custom_playbooks = resp.json()
+        except Exception as e:
+            logger.debug(f"[Auto-Heal] Failed to query custom playbooks from Supabase: {e}")
+            
+    rc_lower = root_cause.lower()
+    
+    # 1. Look for custom playbooks matching keywords
+    matched = None
+    if "bgp" in rc_lower or "congestion" in rc_lower or "bandwidth" in rc_lower or "qos" in rc_lower:
+        matched = next((p for p in custom_playbooks if any(k in p.get("title", "").lower() for k in ["bgp", "qos", "congestion", "route"])), None)
+    elif "flap" in rc_lower or "link" in rc_lower or "carrier" in rc_lower or "port" in rc_lower or "interface" in rc_lower:
+        matched = next((p for p in custom_playbooks if any(k in p.get("title", "").lower() for k in ["port", "link", "interface", "sync", "flap"])), None)
+    elif "cpu" in rc_lower or "memory" in rc_lower or "leak" in rc_lower:
+        matched = next((p for p in custom_playbooks if any(k in p.get("title", "").lower() for k in ["cpu", "memory", "leak", "process", "reset"])), None)
+
+    if matched:
+        logger.info(f"[Auto-Heal] Dynamic Match: Found custom Supabase playbook '{matched['title']}' for alert '{root_cause}'")
+        return {
+            "name": matched["title"],
+            "steps": matched["steps"]
+        }
+
+    # 2. Fallbacks
+    if "bgp" in rc_lower or "congestion" in rc_lower or "bandwidth" in rc_lower or "qos" in rc_lower:
+        return {
+            "name": "BGP Route Optimization Playbook",
+            "steps": [
+                { "cmd": "show ip bgp summary", "expectedOutput": ["OSCILLATING neighbor detected"] },
+                { "cmd": "configure terminal", "expectedOutput": ["Enter commands"] },
+                { "cmd": "router bgp 65001\n neighbor 192.168.10.2 route-map PREFER-PRIMARY in\nexit", "expectedOutput": ["Route map updated"] },
+                { "cmd": "clear ip bgp * soft in", "expectedOutput": ["BGP route selection recalculation complete"] }
+            ]
+        }
+    elif "flap" in rc_lower or "link" in rc_lower or "carrier" in rc_lower or "port" in rc_lower or "interface" in rc_lower:
+        return {
+            "name": "Port Administrative Resync Playbook",
+            "steps": [
+                { "cmd": "show interfaces status", "expectedOutput": ["Gi0/1 err-disabled"] },
+                { "cmd": "configure terminal", "expectedOutput": ["Enter commands"] },
+                { "cmd": "interface GigabitEthernet0/1\n shutdown", "expectedOutput": ["changed state to administratively down"] },
+                { "cmd": "interface GigabitEthernet0/1\n no shutdown", "expectedOutput": ["changed state to up"] }
+            ]
+        }
+    else:
+        return {
+            "name": "Nominal Health Check & Diagnostic Playbook",
+            "steps": [
+                { "cmd": "show ip interface brief", "expectedOutput": ["Interfaces up/up"] },
+                { "cmd": "show cpu processes", "expectedOutput": ["CPU utilization normal"] }
+            ]
+        }
+
+def sync_mitigation_to_supabase(router_id: str, router_name: str, action_taken: str = "automated CLI mitigation script applied"):
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
     if not supabase_url or not supabase_key:
@@ -189,8 +258,8 @@ def sync_mitigation_to_supabase(router_id: str, router_name: str):
         payload = {
             "router_id": router_id,
             "router_name": router_name,
-            "status": "restored",
-            "action_taken": "automated CLI mitigation script applied"
+            "status": "resolved",
+            "action_taken": action_taken
         }
         resp = requests.post(url, headers=headers, json=payload, timeout=3.0)
         if resp.status_code not in [200, 201]:
@@ -246,7 +315,41 @@ async def broadcast_telemetry():
                     if auto_heal_timers[rid] <= 0:
                         logger.info(f"[Auto-Heal] Executing automated mitigation CLI script on router {rid}...")
                         
-                        # Apply mitigation
+                        # Match playbook for active alert
+                        root_cause = enriched_data[rid]["analysis"]["root_cause"]
+                        playbook = match_playbook_for_alert(rid, root_cause)
+                        
+                        from datetime import datetime, timezone
+                        rname = ROUTERS.get(rid, rid)
+                        run_logs = [
+                            f"[LOG] {datetime.now(timezone).isoformat()} - Initializing Automated Auto-Heal Session...",
+                            f"[LOG] Target Ground Station Node: {rid} ({rname})",
+                            f"[LOG] Trigger Alert: {root_cause}",
+                            f"[LOG] Matched Mitigation Strategy: {playbook['name']}",
+                            f"[LOG] Establishing SSH tunnel session to router..."
+                        ]
+                        
+                        for step in playbook["steps"]:
+                            cmd = step.get("cmd", "")
+                            run_logs.append(f"isro-router-{rid.lower()}# {cmd}")
+                            outputs = step.get("expectedOutput", [])
+                            if isinstance(outputs, list):
+                                run_logs.extend(outputs)
+                            else:
+                                run_logs.append(str(outputs))
+                            run_logs.append("")
+                            
+                        run_logs.extend([
+                            f"[LOG] Playbook sequence executed successfully.",
+                            f"[LOG] Automated configuration commit complete.",
+                            f"[LOG] Closing terminal session."
+                        ])
+                        
+                        # Print console trace to backend log
+                        for line in run_logs:
+                            logger.info(f"[Auto-Heal SSH Console] {line}")
+                            
+                        # Apply mitigation on simulator
                         simulator.set_scenario(rid, "normal", duration_steps=0)
                         
                         # Rebuild cache
@@ -267,9 +370,10 @@ async def broadcast_telemetry():
                         # Remove from timers
                         del auto_heal_timers[rid]
 
-                        # Async sync mitigation event to Supabase
-                        rname = ROUTERS.get(rid, rid)
-                        asyncio.create_task(asyncio.to_thread(sync_mitigation_to_supabase, rid, rname))
+                        # Async sync detailed mitigation log trace to Supabase
+                        log_summary = "\n".join(run_logs)
+                        action_taken = f"Automated Closed-Loop Auto-Heal: Executed Playbook \"{playbook['name']}\" to mitigate alert \"{root_cause}\". Terminal Trace:\n{log_summary}"
+                        asyncio.create_task(asyncio.to_thread(sync_mitigation_to_supabase, rid, rname, action_taken))
 
                         # Broadcast specific event packet so frontend logs timeline entry
                         await manager.broadcast({
