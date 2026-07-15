@@ -63,6 +63,52 @@ const PLAYBOOKS: Playbook[] = [
   }
 ];
 
+const isCommandSafe = (cmd: string): { safe: boolean; reason?: string } => {
+  const trimmed = cmd.trim();
+  if (!trimmed) return { safe: true };
+
+  // 1. Detect command injection metacharacters
+  const containsInjection = /[;&`$<>]/g.test(trimmed);
+  if (containsInjection) {
+    return { safe: false, reason: "Forbidden command injection separator or shell meta character detected (;, &, `, $, <, >)" };
+  }
+
+  // 2. Allow Cisco pipe filters but block arbitrary pipe actions
+  const pipeMatches = trimmed.split("|").slice(1);
+  for (const pipePart of pipeMatches) {
+    const pipeCmd = pipePart.trim().toLowerCase();
+    const isAllowedCiscoPipe = /^(include|exclude|section|begin|redirect|tee|count|format)\s/i.test(pipeCmd) || ["include", "exclude", "section", "begin", "count"].includes(pipeCmd);
+    if (!isAllowedCiscoPipe) {
+      return { safe: false, reason: `Forbidden pipe action: "${pipePart.trim()}"` };
+    }
+  }
+
+  // 3. Block malicious operating system execution keywords
+  const lower = trimmed.toLowerCase();
+  const blacklistedKeywords = [
+    "rm ", "rmdir", "chmod", "chown", "sudo", "apt-get", "yum", "apk", "npm", "pip", 
+    "wget", "curl", "python", "perl", "bash", "powershell", "netcat", "nc ", "ncat",
+    "dd ", "mkfs", "systemctl", "init 0", "init 6", "reboot", "shutdown", "kill ",
+    "taskkill", "format c:", "/bin/", "/usr/", "/etc/", "/var/", "/tmp/"
+  ];
+
+  for (const kw of blacklistedKeywords) {
+    if (lower.includes(kw)) {
+      return { safe: false, reason: `Malicious command keyword detected: "${kw.trim()}"` };
+    }
+  }
+
+  // 4. Cisco Command specifics: Must only allow standard commands or safe configuration blocks
+  if (lower.startsWith("sh ") || lower === "sh") {
+    const isShowCmd = /^(show|sh)\s+(ip|interface|bgp|running-config|policy-map|controller|cpu|version|ospf|mpls|status|optics|route|mac-address-table|vlan)/i.test(lower);
+    if (!isShowCmd) {
+      return { safe: false, reason: `Ambiguous/unsupported console query: "${trimmed}"` };
+    }
+  }
+
+  return { safe: true };
+};
+
 interface PlaybookExecutorProps {
   telemetryData: Record<string, { telemetry: { router_id: string; router_name: string; latency: number; cpu: number }; analysis: { failure_risk: number } }>;
   onMitigate: (routerId: string) => Promise<void>;
@@ -268,7 +314,7 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
     let runLogs = [...initialLogs];
     let stepIdx = 0;
     
-    const runNextStep = () => {
+    const runNextStep = async () => {
       if (stepIdx >= playbook.steps.length) {
         // Complete execution
         setTimeout(async () => {
@@ -302,6 +348,29 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
       }
 
       const step = playbook.steps[stepIdx];
+
+      // Run security parameter validation checks
+      const validation = isCommandSafe(step.cmd);
+      if (!validation.safe) {
+        const securityErrorLogs = [
+          `\n[SECURITY VETO] Command Validation Blocked on Step ${stepIdx + 1}!`,
+          `[SECURITY VETO] Offending Command: "${step.cmd}"`,
+          `[SECURITY VETO] Reason: ${validation.reason || "Parameter violates NOC safety policy."}`,
+          `[LOG] Aborting playbook execution session. Closed SSH tunnel.`
+        ];
+        setConsoleLogs(prev => [
+          ...prev,
+          ...securityErrorLogs
+        ]);
+        runLogs = [...runLogs, ...securityErrorLogs];
+        setIsRunning(false);
+        setCurrentStepIndex(-1);
+        
+        // Log the security breach to Supabase for audit compliance
+        await logPlaybookExecutionToSupabase(selectedRouter, playbook.name + " (SECURITY VIOLATION)", runLogs);
+        return;
+      }
+
       setCurrentStepIndex(stepIdx);
 
       // Print command prompt
