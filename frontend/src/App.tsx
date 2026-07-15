@@ -288,6 +288,78 @@ export const App: React.FC = () => {
       ? `${mttrSeconds}s`
       : `${Math.floor(mttrSeconds / 60)}m ${mttrSeconds % 60}s`;
 
+  // ── Feature 16: Browser Push Notifications ────────────────────────────────
+  const notifiedAlertIdsRef = useRef<Set<string>>(new Set());
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
+
+  // Request permission on mount (silently; no blocking UI)
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotifPermission(Notification.permission);
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(perm => setNotifPermission(perm));
+      }
+    }
+  }, []);
+
+  // Fire browser notifications for new critical alerts
+  useEffect(() => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    alerts.forEach(alert => {
+      const key = `${alert.router_id}-${alert.root_cause}`;
+      if (notifiedAlertIdsRef.current.has(key)) return; // already notified
+      notifiedAlertIdsRef.current.add(key);
+
+      const isLinkDown = telemetryData[alert.router_id]?.telemetry?.link_status === 0;
+      const isCritical = alert.risk_score > 70 || isLinkDown;
+      if (!isCritical) return; // only notify for high-severity
+
+      const title = isLinkDown
+        ? `🔴 LINK DOWN — ${alert.router_name}`
+        : `⚡ CRITICAL ALERT — ${alert.router_name}`;
+      const body = `Failure risk: ${alert.risk_score}% | Cause: ${alert.root_cause}`;
+
+      try {
+        const notif = new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          tag: key,         // prevents duplicate toasts for same alert
+          requireInteraction: isLinkDown, // link-down stays until dismissed
+        });
+        // Click brings the tab into focus
+        notif.onclick = () => {
+          window.focus();
+          notif.close();
+        };
+      } catch { /* silently fail on unsupported platforms */ }
+    });
+
+    // Clear stale keys for resolved alerts
+    const currentKeys = new Set(alerts.map(a => `${a.router_id}-${a.root_cause}`));
+    notifiedAlertIdsRef.current.forEach(key => {
+      if (!currentKeys.has(key)) notifiedAlertIdsRef.current.delete(key);
+    });
+  }, [alerts, telemetryData]);
+
+  // Solar flare push notification
+  const prevSolarNotifRef = useRef(false);
+  useEffect(() => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const isFlareActive = !!satelliteData?.solar_flare;
+    if (isFlareActive && !prevSolarNotifRef.current) {
+      try {
+        new Notification('☀️ SOLAR STORM DETECTED — ISRO NOC', {
+          body: 'Space-segment blackout in progress. Satellite SNR critically degraded. Assess downlink schedules immediately.',
+          icon: '/favicon.ico',
+          tag: 'solar-flare',
+          requireInteraction: true,
+        });
+      } catch { /* silent */ }
+    }
+    prevSolarNotifRef.current = isFlareActive;
+  }, [satelliteData]);
+
   // ── Feature 4: Mission Mode ────────────────────────────────────────────────
   const [healActive, setHealActive] = useState(false);
   const deriveMissionMode = useCallback((): MissionMode => {
@@ -1667,6 +1739,39 @@ export const App: React.FC = () => {
               }`}>
                 <Timer className="w-4 h-4" />
               </div>
+            </div>
+
+            {/* KPI 6: Push Notification Status */}
+            <div className="glass-panel rounded-lg p-3 flex items-center justify-between border-noc-border/40">
+              <div>
+                <span className="text-[10px] text-noc-muted font-mono uppercase tracking-wider block">Push Alerts</span>
+                <span className={`font-display text-xl font-bold ${
+                  notifPermission === 'granted' ? 'text-noc-success' :
+                  notifPermission === 'denied'  ? 'text-noc-danger' : 'text-noc-muted'
+                }`}>
+                  {notifPermission === 'granted' ? 'ACTIVE' : notifPermission === 'denied' ? 'BLOCKED' : 'OFF'}
+                </span>
+              </div>
+              {notifPermission === 'granted' ? (
+                <div className="p-1.5 rounded border bg-noc-success/10 border-noc-success/20 text-noc-success">
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                </div>
+              ) : (
+                <button
+                  onClick={() => Notification.requestPermission().then(p => setNotifPermission(p))}
+                  className="p-1.5 rounded border bg-noc-warning/10 border-noc-warning/20 text-noc-warning hover:bg-noc-warning/20 transition-colors cursor-pointer"
+                  title={notifPermission === 'denied' ? 'Enable notifications in browser settings' : 'Click to enable push alerts'}
+                >
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         )}
