@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, ReferenceLine, Tooltip,
@@ -145,11 +145,42 @@ const INITIAL_EVENTS: DownlinkEvent[] = [
 
 const STATIONS_LIST = ["NOC-DEL", "NOC-MUM", "MCF-HSN", "ISTRAC-BGL", "SDSC-SHAR", "TRACK-PBL"];
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+
 const BandwidthHeatmap: React.FC = () => {
   const [events, setEvents] = useState<DownlinkEvent[]>(INITIAL_EVENTS);
   const [selectedEventId, setSelectedEventId] = useState<string>("ev1");
   const [newHour, setNewHour] = useState<number>(18);
   const [selectedCell, setSelectedCell] = useState<{ station: string; hour: number; load: number } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string>("");
+
+  // Load schedules on mount
+  useEffect(() => {
+    const fetchSchedules = async () => {
+      try {
+        setSaveStatus("Loading...");
+        const res = await fetch(`${BACKEND_URL}/api/satellite-schedules`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setEvents(data);
+            // Sync default selected event start hour
+            const ev = data.find(x => x.id === selectedEventId);
+            if (ev) setNewHour(ev.startHour);
+          }
+          setSaveStatus("");
+        } else {
+          setSaveStatus("Load failed, using default");
+          setTimeout(() => setSaveStatus(""), 3000);
+        }
+      } catch (err) {
+        console.error("Failed to fetch schedules:", err);
+        setSaveStatus("Connection offline");
+        setTimeout(() => setSaveStatus(""), 3000);
+      }
+    };
+    fetchSchedules();
+  }, [selectedEventId]);
 
   const loadGrid = useMemo(() => {
     const grid: Record<string, number[]> = {};
@@ -173,14 +204,38 @@ const BandwidthHeatmap: React.FC = () => {
     return grid;
   }, [events]);
 
-  const handleReschedule = () => {
-    setEvents(prev => prev.map(ev => {
+  const handleReschedule = async () => {
+    setSaveStatus("Saving...");
+    const updatedEvents = events.map(ev => {
       if (ev.id === selectedEventId) {
         return { ...ev, startHour: newHour };
       }
       return ev;
-    }));
+    });
+
+    // Update local state first for instant UI response
+    setEvents(updatedEvents);
     setSelectedCell(null);
+
+    // Persist to backend database
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/satellite-schedules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedEvents)
+      });
+      if (res.ok) {
+        setSaveStatus("Schedule saved!");
+        setTimeout(() => setSaveStatus(""), 3000);
+      } else {
+        setSaveStatus("Save error");
+        setTimeout(() => setSaveStatus(""), 3000);
+      }
+    } catch (err) {
+      console.error("Failed to save schedules:", err);
+      setSaveStatus("Offline save");
+      setTimeout(() => setSaveStatus(""), 3000);
+    }
   };
 
   const getCellColor = (load: number) => {
@@ -300,13 +355,21 @@ const BandwidthHeatmap: React.FC = () => {
           </select>
         </div>
 
-        <button
-          onClick={handleReschedule}
-          className="bg-purple-500 hover:bg-purple-600 text-white font-mono font-black text-xs py-2 px-4 rounded transition-colors shadow-[0_0_12px_rgba(168,85,247,0.2)] flex items-center justify-center gap-1.5 uppercase h-[32px]"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Reschedule Downlink</span>
-        </button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            onClick={handleReschedule}
+            disabled={saveStatus === "Saving..."}
+            className="bg-purple-500 hover:bg-purple-600 text-white font-mono font-black text-xs py-2 px-4 rounded transition-colors shadow-[0_0_12px_rgba(168,85,247,0.2)] flex items-center justify-center gap-1.5 uppercase h-[32px] w-full"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${saveStatus === "Saving..." ? "animate-spin" : ""}`} />
+            <span>Reschedule Downlink</span>
+          </button>
+          {saveStatus && (
+            <span className="text-[10px] font-mono text-cyan-400 font-bold text-center">
+              {saveStatus}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -339,6 +339,55 @@ app.add_middleware(
 )
 
 
+class DownlinkEventModel(BaseModel):
+    id: str
+    satName: str
+    stationId: str
+    startHour: int
+    duration: int
+    load: int
+
+# --- Satellite Downlink Schedule Storage ---
+SATELLITE_SCHEDULES_FILE = os.path.join(os.path.dirname(__file__), "satellite_schedules.json")
+
+DEFAULT_SATELLITE_SCHEDULES = [
+  { "id": "ev1", "satName": "GSAT-30 Telemetry Dump", "stationId": "MCF-HSN", "startHour": 13, "duration": 3, "load": 75 },
+  { "id": "ev2", "satName": "CARTOSAT-3 Imaging Download", "stationId": "ISTRAC-BGL", "startHour": 10, "duration": 2, "load": 80 },
+  { "id": "ev3", "satName": "RISAT-2B Radar Scan Sync", "stationId": "TRACK-PBL", "startHour": 15, "duration": 2, "load": 70 },
+  { "id": "ev4", "satName": "OCEANSAT-3 Sea-surface Data", "stationId": "SDSC-SHAR", "startHour": 10, "duration": 3, "load": 65 }
+]
+
+@app.get("/api/satellite-schedules")
+def get_satellite_schedules():
+    if not os.path.exists(SATELLITE_SCHEDULES_FILE):
+        try:
+            with open(SATELLITE_SCHEDULES_FILE, "w", encoding="utf-8") as f:
+                import json
+                json.dump(DEFAULT_SATELLITE_SCHEDULES, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to write default satellite schedules: {e}")
+            return DEFAULT_SATELLITE_SCHEDULES
+    try:
+        with open(SATELLITE_SCHEDULES_FILE, "r", encoding="utf-8") as f:
+            import json
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read satellite schedules: {e}")
+        return DEFAULT_SATELLITE_SCHEDULES
+
+@app.post("/api/satellite-schedules")
+def save_satellite_schedules(schedules: List[DownlinkEventModel]):
+    try:
+        import json
+        payload = [s.dict() for s in schedules]
+        with open(SATELLITE_SCHEDULES_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return {"status": "success", "count": len(payload)}
+    except Exception as e:
+        logger.error(f"Failed to save satellite schedules: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save schedules: {str(e)}")
+
+
 # ─── Models ───────────────────────────────────────────────────────────────────
 class FailureInjectRequest(BaseModel):
     router_id: str

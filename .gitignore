@@ -72,3 +72,4 @@ generator.log
 
 .vercel
 .env*
+satellite_schedules.json
