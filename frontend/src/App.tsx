@@ -22,6 +22,7 @@ import { AnomalyScatterPlot } from './components/AnomalyScatterPlot';
 import { ChitthiVoiceDrawer } from './components/ChitthiVoiceDrawer';
 import { PathTracer } from './components/PathTracer';
 import { SlaConsole } from './components/SlaConsole';
+import { LatencyMatrix } from './components/LatencyMatrix';
 import { 
   Radio, 
   Wifi, 
@@ -2328,7 +2329,10 @@ export const App: React.FC = () => {
                 )}
                 
                 {activeTab === 'all' && (
-                  <PathTracer telemetryData={telemetryData} />
+                  <>
+                    <PathTracer telemetryData={telemetryData} />
+                    <LatencyMatrix telemetryData={telemetryData} />
+                  </>
                 )}
 
                 {/* ── Feature 1: Mission Timeline Feed ───────────────────── */}
