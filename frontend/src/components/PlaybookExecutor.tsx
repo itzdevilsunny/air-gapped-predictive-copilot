@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Sliders, Terminal, Play, RefreshCw } from "lucide-react";
+import { 
+  Sliders, 
+  Terminal, 
+  Play, 
+  RefreshCw, 
+  Plus, 
+  Trash2, 
+  Sparkles, 
+  Save, 
+  FileText
+} from "lucide-react";
 
 interface PlaybookStep {
   cmd: string;
@@ -72,13 +82,64 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
   const [completed, setCompleted] = useState<boolean>(false);
   const consoleBottomRef = useRef<HTMLDivElement>(null);
 
+  // Feature 10 designer states
+  const [isDesignerMode, setIsDesignerMode] = useState<boolean>(false);
+  const [customPlaybooks, setCustomPlaybooks] = useState<Playbook[]>([]);
+  const [designerPlaybook, setDesignerPlaybook] = useState<Playbook>({
+    id: "",
+    name: "",
+    description: "",
+    steps: [{ cmd: "", expectedOutput: [""], durationMs: 1000 }]
+  });
+  const [aiPrompt, setAiPrompt] = useState<string>("");
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const [saveStatus, setSaveStatus] = useState<string>("");
+  const [dbError, setDbError] = useState<boolean>(false);
+
   const routers = useMemo(() => {
     return Object.keys(telemetryData);
   }, [telemetryData]);
 
+  // Load custom playbooks from Supabase (mappings for 'title' column)
+  const fetchCustomPlaybooks = async () => {
+    try {
+      const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/custom_playbooks";
+      const headers = {
+        "apikey": "sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Authorization": "Bearer sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y"
+      };
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        // Map Database column 'title' to Frontend state field 'name'
+        const mapped = data.map((row: any) => ({
+          id: String(row.id),
+          name: row.title || row.name || "Custom Playbook",
+          description: row.description || "",
+          steps: row.steps || []
+        }));
+        setCustomPlaybooks(mapped);
+        setDbError(false);
+      } else if (res.status === 404) {
+        setDbError(true);
+      }
+    } catch (err) {
+      console.warn("[Playbooks] Supabase fetch warning: custom_playbooks table may not exist.", err);
+      setDbError(true);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomPlaybooks();
+  }, []);
+
+  const allPlaybooks = useMemo(() => {
+    return [...PLAYBOOKS, ...customPlaybooks];
+  }, [customPlaybooks]);
+
   const playbook = useMemo(() => {
-    return PLAYBOOKS.find(p => p.id === selectedPlaybook) || PLAYBOOKS[0];
-  }, [selectedPlaybook]);
+    return allPlaybooks.find(p => p.id === selectedPlaybook) || allPlaybooks[0];
+  }, [selectedPlaybook, allPlaybooks]);
 
   useEffect(() => {
     // Scroll terminal to bottom
@@ -152,160 +213,498 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
     }, 1200);
   };
 
+  // Save Playbook to Supabase REST endpoint (with schema-mapped 'title' and integer 'id')
+  const handleSavePlaybook = async () => {
+    if (!designerPlaybook.name.trim()) return;
+    setSaveStatus("Saving...");
+    
+    // Generate a valid integer/bigint id for database PK
+    const numericId = isNaN(Number(designerPlaybook.id)) || !designerPlaybook.id
+      ? Date.now()
+      : Number(designerPlaybook.id);
+      
+    const payload = {
+      id: numericId,
+      title: designerPlaybook.name, // Maps name to title
+      description: designerPlaybook.description,
+      steps: designerPlaybook.steps
+    };
+    
+    try {
+      const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/custom_playbooks";
+      const headers = {
+        "apikey": "sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Authorization": "Bearer sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+      };
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setSaveStatus("Saved successfully!");
+        setDesignerPlaybook(prev => ({ ...prev, id: String(numericId) }));
+        await fetchCustomPlaybooks();
+        setTimeout(() => setSaveStatus(""), 3500);
+      } else {
+        const err = await res.text();
+        console.error("Save failed:", err);
+        setSaveStatus("Failed: DB schema mismatch or permission denied");
+      }
+    } catch (err) {
+      console.error("Supabase write exception:", err);
+      setSaveStatus("Connection error");
+    }
+  };
+
+  // AI-Assisted Playbook Auto-Generation using Gemini
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsAiLoading(true);
+    try {
+      const promptText = `Generate a troubleshooting playbook for network operators. Topic: "${aiPrompt}". Respond ONLY with a valid JSON object matching this schema, no extra text:
+      {
+        "name": "Brief Title",
+        "description": "Short explanation",
+        "steps": [
+          { "cmd": "Cisco CLI Command", "expectedOutput": ["Output line 1", "Output line 2"], "durationMs": 1000 }
+        ]
+      }`;
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: promptText })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.answer || "";
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (parsed.name && parsed.steps) {
+            setDesignerPlaybook({
+              id: "custom-" + Date.now(),
+              name: parsed.name,
+              description: parsed.description || "",
+              steps: parsed.steps.map((s: any) => ({
+                cmd: s.cmd || "",
+                expectedOutput: Array.isArray(s.expectedOutput) ? s.expectedOutput : [s.expectedOutput || ""],
+                durationMs: Number(s.durationMs) || 1200
+              }))
+            });
+            setAiPrompt("");
+          }
+        }
+      }
+    } catch (err) {
+      console.error("AI Playbook generation failed:", err);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  // Editor step field handlers
+  const handleStepChange = (index: number, field: keyof PlaybookStep, value: any) => {
+    setDesignerPlaybook(prev => {
+      const nextSteps = [...prev.steps];
+      if (field === "expectedOutput") {
+        nextSteps[index] = { ...nextSteps[index], expectedOutput: value.split("\n") };
+      } else {
+        nextSteps[index] = { ...nextSteps[index], [field]: value };
+      }
+      return { ...prev, steps: nextSteps };
+    });
+  };
+
+  const addStep = () => {
+    setDesignerPlaybook(prev => ({
+      ...prev,
+      steps: [...prev.steps, { cmd: "", expectedOutput: [""], durationMs: 1000 }]
+    }));
+  };
+
+  const removeStep = (index: number) => {
+    setDesignerPlaybook(prev => {
+      if (prev.steps.length <= 1) return prev;
+      const nextSteps = prev.steps.filter((_, i) => i !== index);
+      return { ...prev, steps: nextSteps };
+    });
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" style={{ minHeight: "500px" }}>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" style={{ minHeight: "550px" }}>
       {/* Playbook Configuration Sidebar */}
-      <div className="lg:col-span-4 flex flex-col gap-4 bg-[#060a16] border border-[#1e3a5f]/40 rounded-xl p-4 glass-panel">
-        <div className="flex items-center gap-2 pb-2 border-b border-[#1e3a5f]/40">
-          <Sliders className="w-4 h-4 text-amber-400" />
-          <h3 className="text-xs font-mono font-bold text-amber-300 uppercase tracking-wider">
-            Playbook Controller
-          </h3>
-        </div>
-
-        {/* Target Node Selection */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-            Target Ground Station
-          </label>
-          <select
-            value={selectedRouter}
-            onChange={(e) => setSelectedRouter(e.target.value)}
-            disabled={isRunning}
-            className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
+      <div className="lg:col-span-4 flex flex-col gap-4 bg-[#060a16] border border-[#1e3a5f]/40 rounded-xl p-4 glass-panel overflow-y-auto max-h-[600px]">
+        {/* Designer Toggle Tabs */}
+        <div className="flex border-b border-[#1e3a5f]/40 gap-2 mb-2">
+          <button
+            onClick={() => setIsDesignerMode(false)}
+            className={`flex-1 pb-2 font-mono text-[10px] font-black tracking-wider uppercase border-b-2 transition-all ${
+              !isDesignerMode ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
           >
-            {routers.map(r => (
-              <option key={r} value={r}>
-                {r} - {telemetryData[r]?.telemetry.router_name || r} ({Math.round(telemetryData[r]?.analysis.failure_risk ?? 0)}% Risk)
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Playbook Selection */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-            Select Playbook Workflow
-          </label>
-          <select
-            value={selectedPlaybook}
-            onChange={(e) => setSelectedPlaybook(e.target.value)}
-            disabled={isRunning}
-            className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
+            Execute Playbooks
+          </button>
+          <button
+            onClick={() => setIsDesignerMode(true)}
+            className={`flex-1 pb-2 font-mono text-[10px] font-black tracking-wider uppercase border-b-2 transition-all ${
+              isDesignerMode ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
           >
-            {PLAYBOOKS.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            Design Playbook
+          </button>
         </div>
 
-        {/* Playbook Description */}
-        <div className="bg-[#030611]/80 rounded border border-[#1e3a5f]/30 p-3 mt-2 flex flex-col gap-2">
-          <p className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
-            Strategy Overview
-          </p>
-          <p className="text-[11px] font-mono text-slate-400 leading-relaxed">
-            {playbook.description}
-          </p>
-        </div>
+        {!isDesignerMode ? (
+          <>
+            <div className="flex items-center gap-2 pb-1.5 border-b border-[#1e3a5f]/20">
+              <Sliders className="w-3.5 h-3.5 text-amber-400" />
+              <h4 className="text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
+                Execution Controller
+              </h4>
+            </div>
 
-        {/* Steps List */}
-        <div className="flex flex-col gap-2 mt-2">
-          <p className="text-[9.5px] font-mono text-slate-500 uppercase tracking-widest">
-            Steps to be executed:
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {playbook.steps.map((step, idx) => (
-              <div
-                key={idx}
-                className={`flex items-center gap-2 font-mono text-[10.5px] px-2 py-1.5 rounded border transition-colors ${
-                  idx === currentStepIndex
-                    ? "bg-amber-500/10 border-amber-500 text-amber-300"
-                    : idx < currentStepIndex || completed
-                    ? "bg-green-500/5 border-green-500/30 text-green-400"
-                    : "bg-[#030611] border-[#1e3a5f]/20 text-slate-500"
-                }`}
+            {/* Target Node Selection */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+                Target Ground Station
+              </label>
+              <select
+                value={selectedRouter}
+                onChange={(e) => setSelectedRouter(e.target.value)}
+                disabled={isRunning}
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
               >
-                <div className="w-4 h-4 rounded-full flex items-center justify-center border border-current text-[9px] shrink-0 font-bold">
-                  {idx + 1}
-                </div>
-                <div className="truncate flex-1">
-                  <code>{step.cmd.split("\n")[0]}</code>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                {routers.map(r => (
+                  <option key={r} value={r}>
+                    {r} - {telemetryData[r]?.telemetry.router_name || r} ({Math.round(telemetryData[r]?.analysis.failure_risk ?? 0)}% Risk)
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        {/* Execute Button */}
-        <button
-          onClick={startExecution}
-          disabled={isRunning}
-          className="mt-auto w-full bg-amber-500 hover:bg-amber-600 disabled:bg-slate-700 text-slate-950 font-mono font-black text-xs py-2.5 px-4 rounded transition-colors shadow-[0_0_12px_rgba(245,158,11,0.2)] disabled:shadow-none flex items-center justify-center gap-2 uppercase tracking-widest"
-        >
-          {isRunning ? (
-            <>
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Executing Playbook...</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-3.5 h-3.5" />
-              <span>Run Diagnostic Playbook</span>
-            </>
-          )}
-        </button>
+            {/* Playbook Selection */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+                Select Playbook Workflow
+              </label>
+              <select
+                value={selectedPlaybook}
+                onChange={(e) => setSelectedPlaybook(e.target.value)}
+                disabled={isRunning}
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
+              >
+                <optgroup label="Default System SOPs">
+                  {PLAYBOOKS.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </optgroup>
+                {customPlaybooks.length > 0 && (
+                  <optgroup label="Custom User SOPs (Supabase)">
+                    {customPlaybooks.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            {/* Playbook Description */}
+            <div className="bg-[#030611]/80 rounded border border-[#1e3a5f]/30 p-2.5 flex flex-col gap-1.5">
+              <p className="text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
+                Strategy Overview
+              </p>
+              <p className="text-[10.5px] font-mono text-slate-400 leading-normal">
+                {playbook.description}
+              </p>
+            </div>
+
+            {/* Steps List */}
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+                Steps to be executed:
+              </p>
+              <div className="flex flex-col gap-1">
+                {playbook.steps.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 font-mono text-[10px] px-2 py-1 rounded border transition-colors ${
+                      idx === currentStepIndex
+                        ? "bg-amber-500/10 border-amber-500 text-amber-300 animate-pulse"
+                        : idx < currentStepIndex || completed
+                        ? "bg-green-500/5 border-green-500/30 text-green-400"
+                        : "bg-[#030611] border-[#1e3a5f]/20 text-slate-500"
+                    }`}
+                  >
+                    <div className="w-3.5 h-3.5 rounded-full flex items-center justify-center border border-current text-[8.5px] shrink-0 font-bold">
+                      {idx + 1}
+                    </div>
+                    <div className="truncate flex-1">
+                      <code>{step.cmd.split("\n")[0]}</code>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Execute Button */}
+            <button
+              onClick={startExecution}
+              disabled={isRunning}
+              className="mt-auto w-full bg-amber-500 hover:bg-amber-600 disabled:bg-slate-700 text-slate-950 font-mono font-bold text-[10px] py-2 px-3 rounded transition-colors shadow-[0_0_12px_rgba(245,158,11,0.2)] disabled:shadow-none flex items-center justify-center gap-1.5 uppercase tracking-widest"
+            >
+              {isRunning ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Executing Playbook...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Run Diagnostic Playbook</span>
+                </>
+              )}
+            </button>
+          </>
+        ) : (
+          /* PLAYBOOK DESIGNER WORKSPACE */
+          <div className="flex flex-col gap-3 font-mono text-xs">
+            <div className="flex items-center gap-2 pb-1.5 border-b border-[#1e3a5f]/20">
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <h4 className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                Playbook Builder Workspace
+              </h4>
+            </div>
+
+            {/* Name Input */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black">
+                Playbook Title
+              </label>
+              <input
+                type="text"
+                value={designerPlaybook.name}
+                onChange={(e) => setDesignerPlaybook(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. Memory Leak Rerouting"
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            {/* Description Input */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black">
+                Description / SOP Reference
+              </label>
+              <textarea
+                value={designerPlaybook.description}
+                onChange={(e) => setDesignerPlaybook(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Reference incident manual or target action guidelines..."
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 h-16 resize-none"
+              />
+            </div>
+
+            {/* Steps Builder Form */}
+            <div className="flex flex-col gap-2">
+              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black flex items-center justify-between">
+                <span>Configure Steps ({designerPlaybook.steps.length})</span>
+                <button
+                  type="button"
+                  onClick={addStep}
+                  className="text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add Step
+                </button>
+              </label>
+
+              <div className="flex flex-col gap-2.5 max-h-[220px] overflow-y-auto pr-1">
+                {designerPlaybook.steps.map((step, idx) => (
+                  <div key={idx} className="bg-[#030611]/60 border border-[#1e3a5f]/30 rounded p-2 flex flex-col gap-1.5 relative">
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 border-b border-[#1e3a5f]/20 pb-1">
+                      <span className="font-bold">Step {idx + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeStep(idx)}
+                        disabled={designerPlaybook.steps.length <= 1}
+                        className="text-red-400 hover:text-red-300 disabled:opacity-30"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={step.cmd}
+                      onChange={(e) => handleStepChange(idx, "cmd", e.target.value)}
+                      placeholder="CLI Command (e.g. show ip ospf neighbor)"
+                      className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1.5 py-0.5 text-[10.5px] text-white focus:outline-none focus:border-amber-500"
+                    />
+
+                    <textarea
+                      value={step.expectedOutput.join("\n")}
+                      onChange={(e) => handleStepChange(idx, "expectedOutput", e.target.value)}
+                      placeholder="Expected terminal output lines..."
+                      className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1.5 py-0.5 text-[10px] text-amber-300/80 focus:outline-none focus:border-amber-500 h-12 resize-none"
+                    />
+
+                    <div className="flex items-center justify-between text-[9px] text-slate-400">
+                      <span>Console Delay (ms):</span>
+                      <input
+                        type="number"
+                        value={step.durationMs}
+                        onChange={(e) => handleStepChange(idx, "durationMs", Number(e.target.value))}
+                        className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1 py-0.5 w-14 text-center text-white"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Save Controls */}
+            <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1e3a5f]/30">
+              <button
+                type="button"
+                onClick={handleSavePlaybook}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2 px-3 rounded flex items-center justify-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Save to Supabase</span>
+              </button>
+              {saveStatus && (
+                <p className="text-[10px] text-center font-bold text-cyan-400">{saveStatus}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Terminal Display Panel */}
+      {/* Terminal Display & AI Prompt Workspace Panel */}
       <div className="lg:col-span-8 flex flex-col bg-[#02050c] border border-[#1e3a5f]/60 rounded-xl overflow-hidden glass-panel">
-        {/* Terminal Header */}
-        <div className="px-4 py-2 border-b border-[#1e3a5f]/60 flex items-center justify-between bg-[#030814]/80">
-          <div className="flex items-center gap-2">
-            <Terminal className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
-              ISRO Router SSH Console Session
-            </span>
+        
+        {/* If in designer mode, show AI Generator bar at the top */}
+        {isDesignerMode ? (
+          <div className="px-4 py-3 border-b border-[#1e3a5f]/60 bg-[#030a1c]/80 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-black">
+                Gemini AI Playbook Auto-Generator
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                disabled={isAiLoading}
+                placeholder="Describe play: 'Analyze CPU leak on Delhi' or 'Mitigate OSPF flapping on MCF-HSN'..."
+                className="flex-1 bg-[#02050c] border border-[#1e3a5f]/60 rounded px-3 py-1.5 font-mono text-xs text-white placeholder-slate-600 focus:outline-none focus:border-purple-400"
+              />
+              <button
+                type="button"
+                onClick={handleAiGenerate}
+                disabled={isAiLoading || !aiPrompt.trim()}
+                className="bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 text-white font-mono font-bold text-[10px] px-4 rounded transition-all flex items-center gap-1.5 uppercase shadow-[0_0_12px_rgba(147,51,234,0.3)] disabled:shadow-none"
+              >
+                {isAiLoading ? (
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                <span>Generate Flow</span>
+              </button>
+            </div>
+            {dbError && (
+              <div className="text-[10px] text-rose-400 font-bold bg-rose-500/10 border border-rose-500/25 p-2 rounded mt-1">
+                ⚠️ [Supabase Notice] Table 'custom_playbooks' not found in database. Run the database schema SQL query to enable playbook saves!
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-red-500" />
-            <div className="w-2 h-2 rounded-full bg-yellow-500" />
-            <div className="w-2 h-2 rounded-full bg-green-500" />
+        ) : (
+          /* Terminal Header */
+          <div className="px-4 py-2 border-b border-[#1e3a5f]/60 flex items-center justify-between bg-[#030814]/80">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                ISRO Router SSH Console Session
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-red-500" />
+              <div className="w-2 h-2 rounded-full bg-yellow-500" />
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Terminal Output Logs */}
+        {/* Console / Preview Output Logs */}
         <div className="flex-1 p-4 font-mono text-[11px] leading-relaxed text-amber-300/90 overflow-y-auto max-h-[460px] min-h-[300px]">
-          {consoleLogs.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-slate-600 select-none">
-              <Terminal className="w-8 h-8 opacity-25 mb-1" />
-              <p>CONSOLE SESSION IDLE</p>
-              <p className="text-[9px] mt-0.5">Start execution to open terminal tunnel</p>
+          {isDesignerMode ? (
+            /* PREVIEW LAYOUT IN DESIGNER */
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between text-slate-500 border-b border-[#1e3a5f]/20 pb-1">
+                <span>🔍 PREVIEW: CLI TERMINAL SEQUENCE</span>
+                <span className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800/50 px-1.5 py-0.5 rounded">Dynamic Simulator Mode</span>
+              </div>
+              
+              <div className="text-slate-500 italic select-none">
+                # Preview of console telemetry stream once playbook starts:
+              </div>
+
+              <div className="pl-2 border-l border-amber-500/20 flex flex-col gap-3.5">
+                <div>
+                  <span className="text-cyan-400">[LOG] Playbook Session started: {designerPlaybook.name || "(No Title)"}</span>
+                  <p className="text-slate-500">[SSH] Encryption keys validated. Initializing secure shell...</p>
+                </div>
+
+                {designerPlaybook.steps.map((step, idx) => (
+                  <div key={idx} className="flex flex-col gap-1">
+                    <div className="text-white font-bold">
+                      isro-router-gate# {step.cmd || `(Empty Command Step ${idx + 1})`}
+                    </div>
+                    <div className="pl-3 text-amber-300/80">
+                      {step.expectedOutput.map((out, oIdx) => (
+                        <div key={oIdx}>{out || "(No expected output configured)"}</div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
+            /* EXECUTION CONSOLE logs */
             <>
-              {consoleLogs.map((log, i) => (
-                <div key={i} className="whitespace-pre-wrap">
-                  {log.startsWith("[LOG]") ? (
-                    <span className="text-cyan-400">{log}</span>
-                  ) : log.startsWith("[SSH]") ? (
-                    <span className="text-slate-500">{log}</span>
-                  ) : log.startsWith("isro-router-") ? (
-                    <span className="text-white font-bold">{log}</span>
-                  ) : (
-                    <span>{log}</span>
+              {consoleLogs.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center text-slate-600 select-none">
+                  <Terminal className="w-8 h-8 opacity-25 mb-1" />
+                  <p>CONSOLE SESSION IDLE</p>
+                  <p className="text-[9px] mt-0.5">Start execution to open terminal tunnel</p>
+                </div>
+              ) : (
+                <>
+                  {consoleLogs.map((log, i) => (
+                    <div key={i} className="whitespace-pre-wrap">
+                      {log.startsWith("[LOG]") ? (
+                        <span className="text-cyan-400">{log}</span>
+                      ) : log.startsWith("[SSH]") ? (
+                        <span className="text-slate-500">{log}</span>
+                      ) : log.startsWith("isro-router-") ? (
+                        <span className="text-white font-bold">{log}</span>
+                      ) : (
+                        <span>{log}</span>
+                      )}
+                    </div>
+                  ))}
+                  {isRunning && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="w-2 h-3.5 bg-amber-400 animate-pulse inline-block" />
+                      <span className="text-[9px] text-slate-500 uppercase tracking-wider animate-pulse">Running router script...</span>
+                    </div>
                   )}
-                </div>
-              ))}
-              {isRunning && (
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="w-2 h-3.5 bg-amber-400 animate-pulse inline-block" />
-                  <span className="text-[9px] text-slate-500 uppercase tracking-wider animate-pulse">Running router script...</span>
-                </div>
+                  <div ref={consoleBottomRef} />
+                </>
               )}
-              <div ref={consoleBottomRef} />
             </>
           )}
         </div>
