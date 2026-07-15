@@ -381,18 +381,175 @@ interface ForecastEngineProps {
 }
 
 export const ForecastEngine: React.FC<ForecastEngineProps> = ({ routerHistory, routerNames }) => {
+  const [simulatedRouter, setSimulatedRouter] = useState<string>("SDSC-SHAR");
+  const [simCpuOffset, setSimCpuOffset] = useState<number>(0);
+  const [simLatencyOffset, setSimLatencyOffset] = useState<number>(0);
+  const [simLossOffset, setSimLossOffset] = useState<number>(0);
+  const [solarStormActive, setSolarStormActive] = useState<boolean>(false);
+
+  const adjustedHistory = useMemo(() => {
+    const adjusted: Record<string, EnrichedHistoryPoint[]> = {};
+    Object.entries(routerHistory).forEach(([rid, points]) => {
+      adjusted[rid] = points.map((p, index) => {
+        let cpu = p.cpu;
+        let latency = p.latency;
+        let packet_loss = p.packet_loss;
+        
+        // Progressively apply override offsets to simulate a rising degradation curve
+        if (rid === simulatedRouter) {
+          const factor = index / (points.length || 1);
+          cpu = Math.min(100, Math.max(0, cpu + simCpuOffset * factor));
+          latency = Math.max(0, latency + simLatencyOffset * factor);
+          packet_loss = Math.min(100, Math.max(0, packet_loss + simLossOffset * factor));
+        }
+
+        // Apply solar storm degradation
+        if (solarStormActive) {
+          const factor = index / (points.length || 1);
+          latency = latency + 80 * factor;
+          packet_loss = Math.min(100, Math.max(0, packet_loss + 3.0 * factor));
+        }
+
+        // Dynamically recompute risk profile based on offsets
+        let failure_risk = p.failure_risk;
+        if (cpu > 80 || packet_loss > 3.0) {
+          failure_risk = Math.min(99, failure_risk + (cpu - 60) * 0.8 + packet_loss * 5);
+        } else {
+          failure_risk = Math.max(2, failure_risk + (cpu - 30) * 0.2);
+        }
+        
+        return {
+          ...p,
+          cpu,
+          latency,
+          packet_loss,
+          failure_risk: Math.round(failure_risk)
+        };
+      });
+    });
+    return adjusted;
+  }, [routerHistory, simulatedRouter, simCpuOffset, simLatencyOffset, simLossOffset, solarStormActive]);
+
   const forecasts = useMemo<RouterForecast[]>(() =>
-    Object.entries(routerHistory)
+    Object.entries(adjustedHistory)
       .map(([rid, hist]) => buildForecast(rid, routerNames[rid] ?? rid, hist))
       .sort((a, b) => b.forecastedRisk30m - a.forecastedRisk30m),
-    [routerHistory, routerNames]
+    [adjustedHistory, routerNames]
   );
+  
   const critCount = forecasts.filter(f => f.forecastedRisk30m >= 80).length;
   const watchCount = forecasts.filter(f => f.forecastedRisk30m >= 60 && f.forecastedRisk30m < 80).length;
   const etaNodes = forecasts.filter(f => f.etaMinutes !== null);
+  
   if (forecasts.length === 0) return <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm">FORECAST ENGINE: AWAITING TELEMETRY DATA</div>;
+  
   return (
     <div className="flex flex-col gap-4">
+      {/* What-If Scenario Overrides Panel */}
+      <div className="bg-[#0a1428]/80 border border-purple-500/30 rounded-xl p-4 flex flex-col gap-3 shadow-[0_0_15px_rgba(168,85,247,0.05)]">
+        <div className="flex items-center gap-2 pb-2 border-b border-[#1e3a5f]/40">
+          <Zap className="w-4 h-4 text-purple-400 animate-pulse" />
+          <span className="text-xs font-mono font-bold text-purple-300 uppercase tracking-widest">
+            PREDICTIVE SCENARIO WHAT-IF SIMULATOR
+          </span>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono text-slate-300">
+          {/* Target Selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] text-slate-500 uppercase tracking-wider">Select Simulation Node</label>
+            <select
+              value={simulatedRouter}
+              onChange={(e) => setSimulatedRouter(e.target.value)}
+              className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-purple-400"
+            >
+              {Object.keys(routerNames).map(rid => (
+                <option key={rid} value={rid}>{rid} — {routerNames[rid]}</option>
+              ))}
+            </select>
+            
+            <label className="flex items-center gap-2 mt-2 cursor-pointer text-[11px] text-slate-400 font-bold select-none">
+              <input
+                type="checkbox"
+                checked={solarStormActive}
+                onChange={(e) => setSolarStormActive(e.target.checked)}
+                className="accent-purple-500 rounded border-[#1e3a5f] bg-[#030611]"
+              />
+              <span>☀️ Inject Solar Particle Flaps</span>
+            </label>
+          </div>
+
+          {/* CPU Slider */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[10px] text-slate-500">
+              <span>CPU OFFSET</span>
+              <span className={`font-bold ${simCpuOffset > 0 ? 'text-red-400' : 'text-green-400'}`}>{simCpuOffset > 0 ? `+${simCpuOffset}%` : `${simCpuOffset}%`}</span>
+            </div>
+            <input
+              type="range"
+              min="-40"
+              max="60"
+              value={simCpuOffset}
+              onChange={(e) => setSimCpuOffset(parseInt(e.target.value))}
+              className="w-full accent-purple-500 h-1.5 bg-[#030611] rounded-lg appearance-none cursor-pointer"
+            />
+            <span className="text-[9px] text-slate-500">Simulates local background computation spikes</span>
+          </div>
+
+          {/* Latency Slider */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[10px] text-slate-500">
+              <span>LATENCY OFFSET</span>
+              <span className={`font-bold ${simLatencyOffset > 0 ? 'text-red-400' : 'text-green-400'}`}>{simLatencyOffset > 0 ? `+${simLatencyOffset}ms` : `${simLatencyOffset}ms`}</span>
+            </div>
+            <input
+              type="range"
+              min="-20"
+              max="200"
+              value={simLatencyOffset}
+              onChange={(e) => setSimLatencyOffset(parseInt(e.target.value))}
+              className="w-full accent-purple-500 h-1.5 bg-[#030611] rounded-lg appearance-none cursor-pointer"
+            />
+            <span className="text-[9px] text-slate-500">Simulates routing loop/queuing delays</span>
+          </div>
+
+          {/* Packet Loss Slider */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[10px] text-slate-500">
+              <span>PACKET LOSS OFFSET</span>
+              <span className={`font-bold ${simLossOffset > 0 ? 'text-red-400' : 'text-green-400'}`}>{simLossOffset > 0 ? `+${simLossOffset.toFixed(1)}%` : `${simLossOffset.toFixed(1)}%`}</span>
+            </div>
+            <input
+              type="range"
+              min="-2"
+              max="10"
+              step="0.5"
+              value={simLossOffset}
+              onChange={(e) => setSimLossOffset(parseFloat(e.target.value))}
+              className="w-full accent-purple-500 h-1.5 bg-[#030611] rounded-lg appearance-none cursor-pointer"
+            />
+            <span className="text-[9px] text-slate-500">Simulates physical layer transponder errors</span>
+          </div>
+        </div>
+
+        {/* Clear Override */}
+        {(simCpuOffset !== 0 || simLatencyOffset !== 0 || simLossOffset !== 0 || solarStormActive) && (
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={() => {
+                setSimCpuOffset(0);
+                setSimLatencyOffset(0);
+                setSimLossOffset(0);
+                setSolarStormActive(false);
+              }}
+              className="text-[10px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 rounded hover:bg-purple-500/20 cursor-pointer"
+            >
+              Reset Offsets
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Nodes Monitored", val: forecasts.length, sub: "All ground stations", col: "text-white", border: "border-[#1e3a5f]/60" },
