@@ -4,8 +4,6 @@ import {
   Terminal, 
   Play, 
   RefreshCw, 
-  Plus, 
-  Trash2, 
   Sparkles, 
   Save, 
   FileText
@@ -70,6 +68,15 @@ interface PlaybookExecutorProps {
   onMitigate: (routerId: string) => Promise<void>;
 }
 
+interface SupabaseMitigationLog {
+  id: string;
+  created_at: string;
+  router_id: string;
+  router_name: string;
+  status: string;
+  action_taken: string;
+}
+
 export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
   telemetryData,
   onMitigate,
@@ -82,8 +89,15 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
   const [completed, setCompleted] = useState<boolean>(false);
   const consoleBottomRef = useRef<HTMLDivElement>(null);
 
+  const [activeTab, setActiveTab] = useState<'execute' | 'design' | 'history'>('execute');
+  const isDesignerMode = activeTab === 'design';
+
+  // Feature 14 Playbook Run History States
+  const [mitigationLogs, setMitigationLogs] = useState<SupabaseMitigationLog[]>([]);
+  const [isLogsLoading, setIsLogsLoading] = useState<boolean>(false);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<SupabaseMitigationLog | null>(null);
+
   // Feature 10 designer states
-  const [isDesignerMode, setIsDesignerMode] = useState<boolean>(false);
   const [customPlaybooks, setCustomPlaybooks] = useState<Playbook[]>([]);
   const [designerPlaybook, setDesignerPlaybook] = useState<Playbook>({
     id: "",
@@ -129,9 +143,36 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
     }
   };
 
+  const fetchMitigationLogs = async () => {
+    try {
+      setIsLogsLoading(true);
+      const url = "https://jfagvkjsagdjrtxljnga.supabase.co/rest/v1/mitigation_logs?order=created_at.desc&limit=15";
+      const headers = {
+        "apikey": "sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y",
+        "Authorization": "Bearer sb_publishable_i28U3zuTkb4w5yfiC6PEOQ_DhgKH21Y"
+      };
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setMitigationLogs(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch mitigation logs from Supabase:", err);
+    } finally {
+      setIsLogsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchCustomPlaybooks();
+    fetchMitigationLogs();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchMitigationLogs();
+    }
+  }, [activeTab]);
 
   const allPlaybooks = useMemo(() => {
     return [...PLAYBOOKS, ...customPlaybooks];
@@ -227,6 +268,7 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
 
           // Async log to Supabase mitigation_logs
           await logPlaybookExecutionToSupabase(selectedRouter, playbook.name, runLogs);
+          fetchMitigationLogs();
         }, 1000);
         return;
       }
@@ -387,24 +429,32 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
         {/* Designer Toggle Tabs */}
         <div className="flex border-b border-[#1e3a5f]/40 gap-2 mb-2">
           <button
-            onClick={() => setIsDesignerMode(false)}
-            className={`flex-1 pb-2 font-mono text-[10px] font-black tracking-wider uppercase border-b-2 transition-all ${
-              !isDesignerMode ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
+            onClick={() => setActiveTab('execute')}
+            className={`flex-1 pb-2 font-mono text-[9px] font-black tracking-wider uppercase border-b-2 transition-all ${
+              activeTab === 'execute' ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
             }`}
           >
-            Execute Playbooks
+            Execute
           </button>
           <button
-            onClick={() => setIsDesignerMode(true)}
-            className={`flex-1 pb-2 font-mono text-[10px] font-black tracking-wider uppercase border-b-2 transition-all ${
-              isDesignerMode ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
+            onClick={() => setActiveTab('design')}
+            className={`flex-1 pb-2 font-mono text-[9px] font-black tracking-wider uppercase border-b-2 transition-all ${
+              activeTab === 'design' ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
             }`}
           >
-            Design Playbook
+            Design
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 pb-2 font-mono text-[9px] font-black tracking-wider uppercase border-b-2 transition-all ${
+              activeTab === 'history' ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            History
           </button>
         </div>
 
-        {!isDesignerMode ? (
+        {activeTab === 'execute' && (
           <>
             <div className="flex items-center gap-2 pb-1.5 border-b border-[#1e3a5f]/20">
               <Sliders className="w-3.5 h-3.5 text-amber-400" />
@@ -515,8 +565,9 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
               )}
             </button>
           </>
-        ) : (
-          /* PLAYBOOK DESIGNER WORKSPACE */
+        )}
+
+        {activeTab === 'design' && (
           <div className="flex flex-col gap-3 font-mono text-xs">
             <div className="flex items-center gap-2 pb-1.5 border-b border-[#1e3a5f]/20">
               <FileText className="w-3.5 h-3.5 text-amber-400" />
@@ -525,58 +576,50 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
               </h4>
             </div>
 
-            {/* Name Input */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black">
-                Playbook Title
-              </label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] text-slate-500 uppercase tracking-widest">Playbook Title</label>
               <input
                 type="text"
                 value={designerPlaybook.name}
                 onChange={(e) => setDesignerPlaybook(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g. Memory Leak Rerouting"
-                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                placeholder="e.g. 'Delhi MCF OSPF Repair'"
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 text-white"
               />
             </div>
 
-            {/* Description Input */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black">
-                Description / SOP Reference
-              </label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] text-slate-500 uppercase tracking-widest">Description</label>
               <textarea
                 value={designerPlaybook.description}
                 onChange={(e) => setDesignerPlaybook(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Reference incident manual or target action guidelines..."
-                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2 py-1 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 h-16 resize-none"
+                placeholder="Briefly explain target symptoms and outcome behavior..."
+                className="bg-[#030611] border border-[#1e3a5f]/60 rounded px-2.5 py-1.5 text-white min-h-[50px]"
               />
             </div>
 
-            {/* Steps Builder Form */}
             <div className="flex flex-col gap-2">
-              <label className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black flex items-center justify-between">
-                <span>Configure Steps ({designerPlaybook.steps.length})</span>
+              <div className="flex items-center justify-between">
+                <label className="text-[9px] text-slate-500 uppercase tracking-widest">CLI Sequence Steps</label>
                 <button
                   type="button"
                   onClick={addStep}
-                  className="text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1"
+                  className="text-amber-400 hover:text-amber-300 text-[10px] uppercase font-bold"
                 >
-                  <Plus className="w-3 h-3" /> Add Step
+                  + Add Step
                 </button>
-              </label>
+              </div>
 
-              <div className="flex flex-col gap-2.5 max-h-[220px] overflow-y-auto pr-1">
+              <div className="flex flex-col gap-3 max-h-[220px] overflow-y-auto pr-1">
                 {designerPlaybook.steps.map((step, idx) => (
-                  <div key={idx} className="bg-[#030611]/60 border border-[#1e3a5f]/30 rounded p-2 flex flex-col gap-1.5 relative">
-                    <div className="flex items-center justify-between text-[9px] text-slate-400 border-b border-[#1e3a5f]/20 pb-1">
-                      <span className="font-bold">Step {idx + 1}</span>
+                  <div key={idx} className="p-2 border border-[#1e3a5f]/30 rounded bg-[#030611]/60 flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-[9px] text-slate-500">
+                      <span>STEP {idx + 1}</span>
                       <button
                         type="button"
                         onClick={() => removeStep(idx)}
-                        disabled={designerPlaybook.steps.length <= 1}
-                        className="text-red-400 hover:text-red-300 disabled:opacity-30"
+                        className="text-red-400 hover:text-red-300 font-bold"
                       >
-                        <Trash2 className="w-2.5 h-2.5" />
+                        Delete
                       </button>
                     </div>
 
@@ -584,26 +627,16 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
                       type="text"
                       value={step.cmd}
                       onChange={(e) => handleStepChange(idx, "cmd", e.target.value)}
-                      placeholder="CLI Command (e.g. show ip ospf neighbor)"
-                      className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1.5 py-0.5 text-[10.5px] text-white focus:outline-none focus:border-amber-500"
+                      placeholder="CLI Command e.g. show ip ospf"
+                      className="bg-[#02050c] border border-[#1e3a5f]/40 rounded px-2 py-1 text-white text-[11px]"
                     />
 
                     <textarea
                       value={step.expectedOutput.join("\n")}
                       onChange={(e) => handleStepChange(idx, "expectedOutput", e.target.value)}
-                      placeholder="Expected terminal output lines..."
-                      className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1.5 py-0.5 text-[10px] text-amber-300/80 focus:outline-none focus:border-amber-500 h-12 resize-none"
+                      placeholder="Expected Output (One line per trace response)"
+                      className="bg-[#02050c] border border-[#1e3a5f]/40 rounded px-2 py-1 text-slate-300 text-[10px] min-h-[40px]"
                     />
-
-                    <div className="flex items-center justify-between text-[9px] text-slate-400">
-                      <span>Console Delay (ms):</span>
-                      <input
-                        type="number"
-                        value={step.durationMs}
-                        onChange={(e) => handleStepChange(idx, "durationMs", Number(e.target.value))}
-                        className="bg-[#020409] border border-[#1e3a5f]/40 rounded px-1 py-0.5 w-14 text-center text-white"
-                      />
-                    </div>
                   </div>
                 ))}
               </div>
@@ -623,6 +656,64 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
                 <p className="text-[10px] text-center font-bold text-cyan-400">{saveStatus}</p>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'history' && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 pb-1.5 border-b border-[#1e3a5f]/20">
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <h4 className="text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
+                Mitigation &amp; Run History
+              </h4>
+            </div>
+
+            {isLogsLoading ? (
+              <div className="text-[10px] font-mono text-slate-500 text-center py-4">
+                Loading history from Supabase...
+              </div>
+            ) : mitigationLogs.length === 0 ? (
+              <div className="text-[10px] font-mono text-slate-500 text-center py-4">
+                No past runs found.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto pr-1">
+                {mitigationLogs.map((log) => {
+                  const dateStr = new Date(log.created_at || "2026-07-15T00:00:00Z").toLocaleTimeString("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                  });
+                  return (
+                    <button
+                      key={log.id}
+                      onClick={() => setSelectedAuditLog(log)}
+                      className="text-left bg-[#030611] hover:bg-[#0c1428] border border-[#1e3a5f]/40 hover:border-amber-500/50 rounded p-2 transition-all flex flex-col gap-1 w-full"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-[10px] font-mono text-white font-bold">
+                          {log.router_id}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-500">
+                          {dateStr}
+                        </span>
+                      </div>
+                      <div className="text-[9px] font-mono text-slate-400 truncate max-w-full">
+                        {log.action_taken || "Mitigation action applied"}
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5 text-[8px] font-mono">
+                        <span className="text-slate-500 uppercase truncate">
+                          {log.router_name}
+                        </span>
+                        <span className="text-green-400 px-1 rounded bg-green-500/10 border border-green-500/20">
+                          {log.status || "resolved"}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -756,6 +847,39 @@ export const PlaybookExecutor: React.FC<PlaybookExecutorProps> = ({
           )}
         </div>
       </div>
+
+      {/* Audit Log Modal Dialog */}
+      {selectedAuditLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-[#050b18] border border-[#1e3a5f] rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e3a5f] bg-[#070e20]">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-amber-400" />
+                <span className="font-mono font-bold text-xs text-white">
+                  SSH Console Audit Log — {selectedAuditLog.router_id}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedAuditLog(null)}
+                className="text-slate-400 hover:text-white font-mono text-xs hover:bg-[#1a2744] px-2 py-1 rounded"
+              >
+                ✕ Close
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto flex-1 font-mono text-xs text-slate-300 bg-[#02050c]">
+              <div className="flex flex-col gap-1.5 pb-3 mb-3 border-b border-[#1e3a5f]/40 text-slate-400 text-[10px]">
+                <p>Node Name: <b className="text-white">{selectedAuditLog.router_name}</b></p>
+                <p>Execution Status: <b className="text-green-400">{selectedAuditLog.status || "resolved"}</b></p>
+                <p>Log Time: <b className="text-white">{new Date(selectedAuditLog.created_at).toLocaleString("en-IN")}</b></p>
+              </div>
+              <pre className="whitespace-pre-wrap leading-relaxed text-emerald-400/90 font-mono text-[11px]">
+                {selectedAuditLog.action_taken}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
