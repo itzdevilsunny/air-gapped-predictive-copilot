@@ -498,6 +498,53 @@ export const SitrepPanel: React.FC<SitrepPanelProps> = ({
 
   const totalAffected = new Set(clusters.flatMap((c) => c.affectedNodes)).size;
 
+  const handleExportSitrep = () => {
+    const reportTitle = "========================================================\n" +
+                        "     ISRO PRED-NOC SITUATIONAL INCIDENT REPORT (SITREP)  \n" +
+                        "========================================================\n\n";
+    const meta = `Generated Time: ${utcTime || new Date().toUTCString()}\n` +
+                 `Grid Composite Health Score: ${healthScore}/100\n` +
+                 `Total Active Alerts: ${alerts.length}\n` +
+                 `Overall Status: ${overallStatus}\n\n`;
+
+    let clustersTxt = "--- CORRELATED INCIDENT CLUSTERS ---\n";
+    if (clusters.length === 0) {
+      clustersTxt += "No correlated incident clusters detected. System operates normally.\n\n";
+    } else {
+      clusters.forEach((c, idx) => {
+        clustersTxt += `[Cluster #${idx + 1}] Pattern: ${c.pattern}\n` +
+                       `  Root Cause: ${c.rootCause}\n` +
+                       `  Blast Radius Index: ${c.blastRadius}%\n` +
+                       `  Hypothesis: ${c.hypothesis}\n` +
+                       `  Affected Nodes: ${c.affectedNodes.join(", ")}\n` +
+                       `  Operational Action: ${c.recommendation}\n\n`;
+      });
+    }
+
+    let sitrepTxt = "--- AUTO-GENERATED SITREP SUMMARY ---\n";
+    sitrepSections.forEach(s => {
+      sitrepTxt += `[${s.heading.toUpperCase()}]\n${s.body}\n\n`;
+    });
+
+    const footer = "========================================================\n" +
+                   "Report compiled by ISRO Air-Gapped Network Copilot.\n" +
+                   "Security Classification: INTERNAL / RESTRICTED\n" +
+                   "========================================================";
+
+    const fullText = reportTitle + meta + clustersTxt + sitrepTxt + footer;
+    
+    // Create blob & download
+    const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ISRO_NOC_SITREP_${Date.now()}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const alertsHash = useMemo(() => {
     return alerts.map((a) => `${a.router_id}-${a.risk_score}`).join("|");
   }, [alerts]);
@@ -659,12 +706,27 @@ export const SitrepPanel: React.FC<SitrepPanelProps> = ({
 
       {/* ── AI-Generated SITREP Terminal ─────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-xs font-mono font-bold text-cyan-300 uppercase tracking-wider">
-            AUTO-GENERATED SITREP
-          </h3>
-          <span className="text-[10px] text-slate-500 font-mono">(Situational Report — regenerates every 60s)</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e3a5f]/40 pb-2">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-xs font-mono font-bold text-cyan-300 uppercase tracking-wider">
+              AUTO-GENERATED SITREP
+            </h3>
+            <span className="text-[10px] text-slate-500 font-mono">(Situational Report — regenerates every 60s)</span>
+          </div>
+          
+          <button
+            onClick={handleExportSitrep}
+            className="flex items-center gap-1.5 px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-500/40 hover:border-cyan-400 rounded text-[10px] font-mono font-bold text-cyan-300 transition-all cursor-pointer hover:shadow-glow-cyan"
+            title="Download full incident report and SITREP as standard text file"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>EXPORT REPORT</span>
+          </button>
         </div>
         <TypedSitrep key={`${overallStatus}-${alertsHash}`} sections={sitrepSections} statusColor={overallStatus} />
       </div>
