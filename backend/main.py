@@ -15,6 +15,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 from simulator import NetworkSimulator, ROUTERS
 from models import NetworkIntelligence
 from copilot import AirGappedCopilot
@@ -268,6 +272,77 @@ def sync_mitigation_to_supabase(router_id: str, router_name: str, action_taken: 
     except Exception as e:
         logger.debug(f"[Supabase Sync] Mitigation sync error: {e}")
 
+# Cache for sent alerts to prevent notification spamming
+notified_alerts_cache = set()
+
+def dispatch_alert_notifications(active_alerts: list):
+    """Dispatches SMS/Email notifications for critical alerts with local log fallback."""
+    global notified_alerts_cache
+    
+    current_alert_keys = set()
+    for alert in active_alerts:
+        rid = alert["router_id"]
+        rc = alert["root_cause"]
+        risk = alert["risk_score"]
+        key = f"{rid}-{rc}"
+        current_alert_keys.add(key)
+        
+        # Only notify for new critical incidents (risk > 70% or new outage)
+        is_link_down = "down" in rc.lower() or "flap" in rc.lower() or "outage" in rc.lower()
+        if key not in notified_alerts_cache and (risk > 70.0 or is_link_down):
+            notified_alerts_cache.add(key)
+            
+            # 1. Log to local audit file (air-gap fallback)
+            log_filepath = os.path.join(os.path.dirname(__file__), "alerts_dispatched.log")
+            timestamp = alert["timestamp"]
+            log_entry = f"[{timestamp}] ALERT: Node={rid} ({alert['router_name']}) | Risk={risk}% | Cause={rc}\n"
+            try:
+                with open(log_filepath, "a", encoding="utf-8") as f:
+                    f.write(log_entry)
+            except Exception as e:
+                logger.error(f"[Alert Dispatch] Failed to write local log: {e}")
+                
+            # 2. Dispatch SMTP Email if credentials exist
+            smtp_host = os.getenv("SMTP_HOST", "")
+            smtp_port = os.getenv("SMTP_PORT", "")
+            smtp_user = os.getenv("SMTP_USER", "")
+            smtp_pass = os.getenv("SMTP_PASSWORD", "")
+            receiver = os.getenv("ALERT_RECEIVER_EMAIL", "")
+            
+            if smtp_host and receiver:
+                try:
+                    port = int(smtp_port) if smtp_port else 587
+                    msg = MIMEMultipart()
+                    msg["From"] = smtp_user or "noreply@isro.gov.in"
+                    msg["To"] = receiver
+                    msg["Subject"] = f"[ISRO NOC ALERT] Critical Status on {rid} — Risk {risk}%"
+                    
+                    body = (
+                        f"ISRO PRED-NOC MISSION CRITICAL INCIDENT REPORT\n"
+                        f"================================================\n"
+                        f"Timestamp: {timestamp}\n"
+                        f"Target Station: {rid} ({alert['router_name']})\n"
+                        f"Failure Risk Score: {risk}%\n"
+                        f"Correlated Root Cause: {rc}\n"
+                        f"================================================\n"
+                        f"Operational Instruction: Please check the copilot panel and deploy self-healing mitigation templates immediately."
+                    )
+                    msg.attach(MIMEText(body, "plain"))
+                    
+                    with smtplib.SMTP(smtp_host, port, timeout=5.0) as server:
+                        if smtp_user and smtp_pass:
+                            server.starttls()
+                            server.login(smtp_user, smtp_pass)
+                        server.send_message(msg)
+                    logger.info(f"[Alert Dispatch] Outgoing email dispatched successfully to {receiver}")
+                except Exception as smtp_err:
+                    logger.warning(f"[Alert Dispatch] SMTP dispatch failed (intended fallback for air-gapped systems): {smtp_err}")
+
+    # Clear resolved alerts from cache
+    resolved_keys = notified_alerts_cache - current_alert_keys
+    for key in resolved_keys:
+        notified_alerts_cache.remove(key)
+
 async def broadcast_telemetry():
     global auto_heal_timers
     while True:
@@ -277,6 +352,9 @@ async def broadcast_telemetry():
             
             # Async sync to Supabase in separate thread to prevent blocking
             asyncio.create_task(asyncio.to_thread(sync_telemetry_to_supabase, enriched_data))
+            
+            # Dispatch alert notifications asynchronously (runs in separate task to avoid blocking loop)
+            asyncio.create_task(asyncio.to_thread(dispatch_alert_notifications, active_alerts))
             
             # Symmetrically update in-memory cache safely on the main thread
             for rid, latest_telemetry in step_data.items():
